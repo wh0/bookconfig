@@ -1,0 +1,31 @@
+#!/bin/sh
+{
+	mount -o remount,rw /dev/mmcblk0p2 / &&
+
+	rm /sbin/init &&
+
+	# no-check-gpg: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=734324
+	# eatmydata: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=700633
+	LD_PRELOAD=/debootstrap/libeatmydata.so /debootstrap/debootstrap --second-stage --no-check-gpg &&
+
+	read -p "Hostname: " hostname &&
+	echo "$hostname" > /etc/hostname &&
+
+	echo "127.0.0.1	localhost" > /etc/hosts &&
+	echo "127.0.1.1 $hostname" >> /etc/hosts &&
+	echo "" >> /etc/hosts &&
+	echo "# The following lines are desirable for IPv6 capable hosts" >> /etc/hosts &&
+	echo "::1     localhost ip6-localhost ip6-loopback" >> /etc/hosts &&
+	echo "ff02::1 ip6-allnodes" >> /etc/hosts &&
+	echo "ff02::2 ip6-allrouters" >> /etc/hosts &&
+
+	read -p "Username for your account: " username &&
+	adduser --gecos "" "$username" &&
+	adduser "$username" sudo &&
+
+	echo "deb __MIRROR__ __SUITE__ main contrib non-free" > /etc/apt/sources.list
+	echo "deb-src __MIRROR__ __SUITE__ main contrib non-free" >> /etc/apt/sources.list
+
+	# debootstrap unpacks the real /sbin/init
+	exec /sbin/init
+} || exec /bin/sh
