@@ -14,7 +14,6 @@
  */
 
 
-#include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/err.h>
 #include <linux/module.h>
@@ -198,7 +197,7 @@ static void titsc_step_config(struct titsc *ts_dev)
 	/* The steps1 … end and bit 0 for TS_Charge */
 	stepenable = (1 << (end_step + 2)) - 1;
 	ts_dev->step_mask = stepenable;
-	am335x_tsc_se_set(ts_dev->mfd_tscadc, ts_dev->step_mask);
+	am335x_tsc_se_set_cache(ts_dev->mfd_tscadc, ts_dev->step_mask);
 }
 
 static void titsc_read_coordinates(struct titsc *ts_dev,
@@ -322,7 +321,7 @@ static irqreturn_t titsc_irq(int irq, void *dev)
 
 	if (irqclr) {
 		titsc_writel(ts_dev, REG_IRQSTATUS, irqclr);
-		am335x_tsc_se_set(ts_dev->mfd_tscadc, ts_dev->step_mask);
+		am335x_tsc_se_set_cache(ts_dev->mfd_tscadc, ts_dev->step_mask);
 		return IRQ_HANDLED;
 	}
 	return IRQ_NONE;
@@ -360,9 +359,12 @@ static int titsc_parse_dt(struct platform_device *pdev,
 	 */
 	err = of_property_read_u32(node, "ti,coordinate-readouts",
 			&ts_dev->coordinate_readouts);
-	if (err < 0)
+	if (err < 0) {
+		dev_warn(&pdev->dev, "please use 'ti,coordinate-readouts' instead\n");
 		err = of_property_read_u32(node, "ti,coordiante-readouts",
 				&ts_dev->coordinate_readouts);
+	}
+
 	if (err < 0)
 		return err;
 

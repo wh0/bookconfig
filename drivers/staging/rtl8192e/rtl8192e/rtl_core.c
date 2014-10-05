@@ -562,8 +562,8 @@ void rtl8192_update_cap(struct net_device *dev, u16 cap)
 }
 
 static struct rtllib_qos_parameters def_qos_parameters = {
-	{3, 3, 3, 3},
-	{7, 7, 7, 7},
+	{cpu_to_le16(3), cpu_to_le16(3), cpu_to_le16(3), cpu_to_le16(3)},
+	{cpu_to_le16(7), cpu_to_le16(7), cpu_to_le16(7), cpu_to_le16(7)},
 	{2, 2, 2, 2},
 	{0, 0, 0, 0},
 	{0, 0, 0, 0}
@@ -584,8 +584,6 @@ static void rtl8192_update_beacon(void *data)
 	ieee->pHTInfo->RT2RT_HT_Mode = net->bssht.RT2RT_HT_Mode;
 	rtl8192_update_cap(dev, net->capability);
 }
-
-int WDCAPARA_ADD[] = {EDCAPARA_BE, EDCAPARA_BK, EDCAPARA_VI, EDCAPARA_VO};
 
 static void rtl8192_qos_activate(void *data)
 {
@@ -1845,7 +1843,7 @@ static void rtl8192_free_tx_ring(struct net_device *dev, unsigned int prio)
 		struct tx_desc *entry = &ring->desc[ring->idx];
 		struct sk_buff *skb = __skb_dequeue(&ring->queue);
 
-		pci_unmap_single(priv->pdev, le32_to_cpu(entry->TxBuffAddr),
+		pci_unmap_single(priv->pdev, entry->TxBuffAddr,
 			skb->len, PCI_DMA_TODEVICE);
 		kfree_skb(skb);
 		ring->idx = (ring->idx + 1) % ring->entries;
@@ -1917,8 +1915,7 @@ int rtl8192_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	memcpy((unsigned char *)(skb->cb), &dev, sizeof(dev));
 	if (queue_index == TXCMD_QUEUE) {
 		rtl8192_tx_cmd(dev, skb);
-		ret = 0;
-		return ret;
+		return 0;
 	} else {
 		tcb_desc->RATRIndex = 7;
 		tcb_desc->bTxDisableRateFallBack = 1;
@@ -1950,7 +1947,7 @@ static void rtl8192_tx_isr(struct net_device *dev, int prio)
 		}
 
 		skb = __skb_dequeue(&ring->queue);
-		pci_unmap_single(priv->pdev, le32_to_cpu(entry->TxBuffAddr),
+		pci_unmap_single(priv->pdev, entry->TxBuffAddr,
 		skb->len, PCI_DMA_TODEVICE);
 
 		kfree_skb(skb);
@@ -2011,7 +2008,7 @@ short rtl8192_tx(struct net_device *dev, struct sk_buff *skb)
 	fwinfo_size = sizeof(struct tx_fwinfo_8190pci);
 
 	header = (struct rtllib_hdr_1addr *)(((u8 *)skb->data) + fwinfo_size);
-	fc = header->frame_ctl;
+	fc = le16_to_cpu(header->frame_ctl);
 	type = WLAN_FC_GET_TYPE(fc);
 	stype = WLAN_FC_GET_STYPE(fc);
 	pda_addr = header->addr1;
@@ -2101,7 +2098,7 @@ static short rtl8192_alloc_rx_desc_ring(struct net_device *dev)
 				dev_kfree_skb_any(skb);
 				return -1;
 			}
-			entry->BufferAddress = cpu_to_le32(*mapping);
+			entry->BufferAddress = *mapping;
 
 			entry->Length = priv->rxbuffersize;
 			entry->OWN = 1;
@@ -2137,8 +2134,8 @@ static int rtl8192_alloc_tx_desc_ring(struct net_device *dev,
 
 	for (i = 0; i < entries; i++)
 		ring[i].NextDescAddress =
-			cpu_to_le32((u32)dma + ((i + 1) % entries) *
-			sizeof(*ring));
+			(u32)dma + ((i + 1) % entries) *
+			sizeof(*ring);
 
 	return 0;
 }
@@ -2198,7 +2195,7 @@ void rtl8192_pci_resetdescring(struct net_device *dev)
 						 __skb_dequeue(&ring->queue);
 
 				pci_unmap_single(priv->pdev,
-						 le32_to_cpu(entry->TxBuffAddr),
+						 entry->TxBuffAddr,
 						 skb->len, PCI_DMA_TODEVICE);
 				kfree_skb(skb);
 				ring->idx = (ring->idx + 1) % ring->entries;
@@ -2400,7 +2397,7 @@ static void rtl8192_rx_normal(struct net_device *dev)
 			}
 		}
 done:
-		pdesc->BufferAddress = cpu_to_le32(*((dma_addr_t *)skb->cb));
+		pdesc->BufferAddress = *((dma_addr_t *)skb->cb);
 		pdesc->OWN = 1;
 		pdesc->Length = priv->rxbuffersize;
 		if (priv->rx_idx[rx_queue_idx] == priv->rxringcount-1)
@@ -2692,7 +2689,7 @@ out:
 }
 
 
-irqreturn_t rtl8192_interrupt(int irq, void *netdev)
+static irqreturn_t rtl8192_interrupt(int irq, void *netdev)
 {
 	struct net_device *dev = (struct net_device *) netdev;
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
@@ -2928,8 +2925,7 @@ static int rtl8192_pci_probe(struct pci_dev *pdev,
 
 	dev->netdev_ops = &rtl8192_netdev_ops;
 
-	dev->wireless_handlers = (struct iw_handler_def *)
-				 &r8192_wx_handlers_def;
+	dev->wireless_handlers = &r8192_wx_handlers_def;
 	dev->ethtool_ops = &rtl819x_ethtool_ops;
 
 	dev->type = ARPHRD_ETHER;
@@ -3032,7 +3028,7 @@ bool NicIFEnableNIC(struct net_device *dev)
 		RT_TRACE(COMP_ERR, "ERR!!! %s(): Driver is already down!\n",
 			 __func__);
 		priv->bdisable_nic = false;
-		return RT_STATUS_FAILURE;
+		return false;
 	}
 
 	RT_TRACE(COMP_PS, "===========>%s()\n", __func__);
@@ -3042,7 +3038,7 @@ bool NicIFEnableNIC(struct net_device *dev)
 		RT_TRACE(COMP_ERR, "ERR!!! %s(): initialization is failed!\n",
 			 __func__);
 		priv->bdisable_nic = false;
-		return -1;
+		return false;
 	}
 	RT_TRACE(COMP_INIT, "start adapter finished\n");
 	RT_CLEAR_PS_LEVEL(pPSC, RT_RF_OFF_LEVL_HALT_NIC);

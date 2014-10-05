@@ -35,8 +35,16 @@
 #define EM_ARCOMPACT	93
 #endif
 
+#ifndef EM_XTENSA
+#define EM_XTENSA	94
+#endif
+
 #ifndef EM_AARCH64
 #define EM_AARCH64	183
+#endif
+
+#ifndef EM_MICROBLAZE
+#define EM_MICROBLAZE	189
 #endif
 
 static int fd_map;	/* File descriptor for file being modified. */
@@ -275,7 +283,9 @@ do_file(char const *const fname)
 	case EM_ARCOMPACT:
 	case EM_ARM:
 	case EM_AARCH64:
+	case EM_MICROBLAZE:
 	case EM_MIPS:
+	case EM_XTENSA:
 		break;
 	}  /* end switch */
 

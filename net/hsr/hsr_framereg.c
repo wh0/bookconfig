@@ -108,8 +108,8 @@ int hsr_create_self_node(struct list_head *self_node_db,
 	if (!node)
 		return -ENOMEM;
 
-	memcpy(node->MacAddressA, addr_a, ETH_ALEN);
-	memcpy(node->MacAddressB, addr_b, ETH_ALEN);
+	ether_addr_copy(node->MacAddressA, addr_a);
+	ether_addr_copy(node->MacAddressB, addr_b);
 
 	rcu_read_lock();
 	oldnode = list_first_or_null_rcu(self_node_db,
@@ -125,11 +125,6 @@ int hsr_create_self_node(struct list_head *self_node_db,
 	}
 
 	return 0;
-}
-
-static void node_entry_reclaim(struct rcu_head *rh)
-{
-	kfree(container_of(rh, struct node_entry, rcu_head));
 }
 
 
@@ -175,7 +170,7 @@ struct node_entry *hsr_merge_node(struct hsr_priv *hsr_priv,
 	if (node && !ether_addr_equal(node->MacAddressA, hsr_sp->MacAddressA)) {
 		/* Node has changed its AddrA, frame was received from SlaveB */
 		list_del_rcu(&node->mac_list);
-		call_rcu(&node->rcu_head, node_entry_reclaim);
+		kfree_rcu(node, rcu_head);
 		node = NULL;
 	}
 
@@ -183,7 +178,7 @@ struct node_entry *hsr_merge_node(struct hsr_priv *hsr_priv,
 	    !ether_addr_equal(node->MacAddressB, hsr_ethsup->ethhdr.h_source)) {
 		/* Cables have been swapped */
 		list_del_rcu(&node->mac_list);
-		call_rcu(&node->rcu_head, node_entry_reclaim);
+		kfree_rcu(node, rcu_head);
 		node = NULL;
 	}
 
@@ -192,7 +187,7 @@ struct node_entry *hsr_merge_node(struct hsr_priv *hsr_priv,
 	    !ether_addr_equal(node->MacAddressA, hsr_ethsup->ethhdr.h_source)) {
 		/* Cables have been swapped */
 		list_del_rcu(&node->mac_list);
-		call_rcu(&node->rcu_head, node_entry_reclaim);
+		kfree_rcu(node, rcu_head);
 		node = NULL;
 	}
 
@@ -204,7 +199,7 @@ struct node_entry *hsr_merge_node(struct hsr_priv *hsr_priv,
 		/* Node is known, but frame was received from an unknown
 		 * address. Node is PICS_SUBS capable; merge its AddrB.
 		 */
-		memcpy(node->MacAddressB, hsr_ethsup->ethhdr.h_source, ETH_ALEN);
+		ether_addr_copy(node->MacAddressB, hsr_ethsup->ethhdr.h_source);
 		node->AddrB_if = dev_idx;
 		return node;
 	}
@@ -213,8 +208,8 @@ struct node_entry *hsr_merge_node(struct hsr_priv *hsr_priv,
 	if (!node)
 		return NULL;
 
-	memcpy(node->MacAddressA, hsr_sp->MacAddressA, ETH_ALEN);
-	memcpy(node->MacAddressB, hsr_ethsup->ethhdr.h_source, ETH_ALEN);
+	ether_addr_copy(node->MacAddressA, hsr_sp->MacAddressA);
+	ether_addr_copy(node->MacAddressB, hsr_ethsup->ethhdr.h_source);
 	if (!ether_addr_equal(hsr_sp->MacAddressA, hsr_ethsup->ethhdr.h_source))
 		node->AddrB_if = dev_idx;
 	else
@@ -255,7 +250,7 @@ void hsr_addr_subst_source(struct hsr_priv *hsr_priv, struct sk_buff *skb)
 	rcu_read_lock();
 	node = find_node_by_AddrB(&hsr_priv->node_db, ethhdr->h_source);
 	if (node)
-		memcpy(ethhdr->h_source, node->MacAddressA, ETH_ALEN);
+		ether_addr_copy(ethhdr->h_source, node->MacAddressA);
 	rcu_read_unlock();
 }
 
@@ -277,7 +272,7 @@ void hsr_addr_subst_dest(struct hsr_priv *hsr_priv, struct ethhdr *ethhdr,
 	rcu_read_lock();
 	node = find_node_by_AddrA(&hsr_priv->node_db, ethhdr->h_dest);
 	if (node && (node->AddrB_if == dev_idx))
-		memcpy(ethhdr->h_dest, node->MacAddressB, ETH_ALEN);
+		ether_addr_copy(ethhdr->h_dest, node->MacAddressB);
 	rcu_read_unlock();
 }
 
@@ -302,7 +297,7 @@ static bool seq_nr_after(u16 a, u16 b)
 
 void hsr_register_frame_in(struct node_entry *node, enum hsr_dev_idx dev_idx)
 {
-	if ((dev_idx < 0) || (dev_idx >= HSR_MAX_DEV)) {
+	if ((dev_idx < 0) || (dev_idx >= HSR_MAX_SLAVE)) {
 		WARN_ONCE(1, "%s: Invalid dev_idx (%d)\n", __func__, dev_idx);
 		return;
 	}
@@ -417,7 +412,7 @@ void hsr_prune_nodes(struct hsr_priv *hsr_priv)
 			hsr_nl_nodedown(hsr_priv, node->MacAddressA);
 			list_del_rcu(&node->mac_list);
 			/* Note that we need to free this entry later: */
-			call_rcu(&node->rcu_head, node_entry_reclaim);
+			kfree_rcu(node, rcu_head);
 		}
 	}
 	rcu_read_unlock();
@@ -433,13 +428,13 @@ void *hsr_get_next_node(struct hsr_priv *hsr_priv, void *_pos,
 		node = list_first_or_null_rcu(&hsr_priv->node_db,
 						struct node_entry, mac_list);
 		if (node)
-			memcpy(addr, node->MacAddressA, ETH_ALEN);
+			ether_addr_copy(addr, node->MacAddressA);
 		return node;
 	}
 
 	node = _pos;
 	list_for_each_entry_continue_rcu(node, &hsr_priv->node_db, mac_list) {
-		memcpy(addr, node->MacAddressA, ETH_ALEN);
+		ether_addr_copy(addr, node->MacAddressA);
 		return node;
 	}
 
@@ -467,7 +462,7 @@ int hsr_get_node_data(struct hsr_priv *hsr_priv,
 		return -ENOENT;	/* No such entry */
 	}
 
-	memcpy(addr_b, node->MacAddressB, ETH_ALEN);
+	ether_addr_copy(addr_b, node->MacAddressB);
 
 	tdiff = jiffies - node->time_in[HSR_DEV_SLAVE_A];
 	if (node->time_in_stale[HSR_DEV_SLAVE_A])

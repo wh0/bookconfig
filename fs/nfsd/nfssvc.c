@@ -221,7 +221,8 @@ static int nfsd_startup_generic(int nrservs)
 	 */
 	ret = nfsd_racache_init(2*nrservs);
 	if (ret)
-		return ret;
+		goto dec_users;
+
 	ret = nfs4_state_start();
 	if (ret)
 		goto out_racache;
@@ -229,6 +230,8 @@ static int nfsd_startup_generic(int nrservs)
 
 out_racache:
 	nfsd_racache_shutdown();
+dec_users:
+	nfsd_users--;
 	return ret;
 }
 
@@ -239,6 +242,15 @@ static void nfsd_shutdown_generic(void)
 
 	nfs4_state_shutdown();
 	nfsd_racache_shutdown();
+}
+
+static bool nfsd_needs_lockd(void)
+{
+#if defined(CONFIG_NFSD_V3)
+	return (nfsd_versions[2] != NULL) || (nfsd_versions[3] != NULL);
+#else
+	return (nfsd_versions[2] != NULL);
+#endif
 }
 
 static int nfsd_startup_net(int nrservs, struct net *net)
@@ -255,9 +267,14 @@ static int nfsd_startup_net(int nrservs, struct net *net)
 	ret = nfsd_init_socks(net);
 	if (ret)
 		goto out_socks;
-	ret = lockd_up(net);
-	if (ret)
-		goto out_socks;
+
+	if (nfsd_needs_lockd() && !nn->lockd_up) {
+		ret = lockd_up(net);
+		if (ret)
+			goto out_socks;
+		nn->lockd_up = 1;
+	}
+
 	ret = nfs4_state_start_net(net);
 	if (ret)
 		goto out_lockd;
@@ -266,7 +283,10 @@ static int nfsd_startup_net(int nrservs, struct net *net)
 	return 0;
 
 out_lockd:
-	lockd_down(net);
+	if (nn->lockd_up) {
+		lockd_down(net);
+		nn->lockd_up = 0;
+	}
 out_socks:
 	nfsd_shutdown_generic();
 	return ret;
@@ -277,7 +297,10 @@ static void nfsd_shutdown_net(struct net *net)
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 
 	nfs4_state_shutdown_net(net);
-	lockd_down(net);
+	if (nn->lockd_up) {
+		lockd_down(net);
+		nn->lockd_up = 0;
+	}
 	nn->nfsd_net_up = false;
 	nfsd_shutdown_generic();
 }
@@ -571,12 +594,6 @@ nfsd(void *vrqstp)
 	nfsdstats.th_cnt++;
 	mutex_unlock(&nfsd_mutex);
 
-	/*
-	 * We want less throttling in balance_dirty_pages() so that nfs to
-	 * localhost doesn't cause nfsd to lock up due to all the client's
-	 * dirty pages.
-	 */
-	current->flags |= PF_LESS_THROTTLE;
 	set_freezable();
 
 	/*

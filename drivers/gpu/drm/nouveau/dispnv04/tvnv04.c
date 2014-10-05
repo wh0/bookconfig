@@ -59,7 +59,7 @@ int nv04_tv_identify(struct drm_device *dev, int i2c_index)
 	struct nouveau_i2c *i2c = nouveau_i2c(drm->device);
 
 	return i2c->identify(i2c, i2c_index, "TV encoder",
-			     nv04_tv_encoder_info, NULL);
+			     nv04_tv_encoder_info, NULL, NULL);
 }
 
 
@@ -171,7 +171,8 @@ static void nv04_tv_commit(struct drm_encoder *encoder)
 	helper->dpms(encoder, DRM_MODE_DPMS_ON);
 
 	NV_DEBUG(drm, "Output %s is running on CRTC %d using output %c\n",
-		 drm_get_connector_name(&nouveau_encoder_connector_get(nv_encoder)->base), nv_crtc->index, '@' + ffs(nv_encoder->dcb->or));
+		 nouveau_encoder_connector_get(nv_encoder)->base.name,
+		 nv_crtc->index, '@' + ffs(nv_encoder->dcb->or));
 }
 
 static void nv04_tv_destroy(struct drm_encoder *encoder)

@@ -5,13 +5,13 @@
  * IIO features supported by the driver:
  *
  * Read-only raw channels:
- *   - illiminance_clear [lux]
- *   - illiminance_ir
+ *   - illuminance_clear [lux]
+ *   - illuminance_ir
  *   - proximity
  *
  * Triggered buffer:
- *   - illiminance_clear
- *   - illiminance_ir
+ *   - illuminance_clear
+ *   - illuminance_ir
  *   - proximity
  *
  * Events:
@@ -1388,10 +1388,10 @@ static const struct iio_chan_spec gp2ap020a00f_channels[] = {
 
 static const struct iio_info gp2ap020a00f_info = {
 	.read_raw = &gp2ap020a00f_read_raw,
-	.read_event_value_new = &gp2ap020a00f_read_event_val,
-	.read_event_config_new = &gp2ap020a00f_read_event_config,
-	.write_event_value_new = &gp2ap020a00f_write_event_val,
-	.write_event_config_new = &gp2ap020a00f_write_event_config,
+	.read_event_value = &gp2ap020a00f_read_event_val,
+	.read_event_config = &gp2ap020a00f_read_event_config,
+	.write_event_value = &gp2ap020a00f_write_event_val,
+	.write_event_config = &gp2ap020a00f_write_event_config,
 	.driver_module = THIS_MODULE,
 };
 

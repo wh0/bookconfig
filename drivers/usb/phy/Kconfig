@@ -19,9 +19,8 @@ config AB8500_USB
 	  in host mode, low speed.
 
 config FSL_USB2_OTG
-	tristate "Freescale USB OTG Transceiver Driver"
-	depends on USB_EHCI_FSL && USB_FSL_USB2 && PM_RUNTIME
-	depends on USB
+	bool "Freescale USB OTG Transceiver Driver"
+	depends on USB_EHCI_FSL && USB_FSL_USB2 && USB_OTG_FSM && PM_RUNTIME
 	select USB_OTG
 	select USB_PHY
 	help
@@ -40,15 +39,16 @@ config ISP1301_OMAP
 	  Instruments OMAP processors.
 
 	  This driver can also be built as a module.  If so, the module
-	  will be called isp1301_omap.
+	  will be called phy-isp1301-omap.
 
-config MV_U3D_PHY
-	bool "Marvell USB 3.0 PHY controller Driver"
-	depends on CPU_MMP3
-	select USB_PHY
+config KEYSTONE_USB_PHY
+	tristate "Keystone USB PHY Driver"
+	depends on ARCH_KEYSTONE || COMPILE_TEST
+	select NOP_USB_XCEIV
 	help
-	  Enable this to support Marvell USB 3.0 phy controller for Marvell
-	  SoC.
+	  Enable this to support Keystone USB phy. This driver provides
+	  interface to interact with USB 2.0 and USB 3.0 PHY that is part
+	  of the Keystone SOC.
 
 config NOP_USB_XCEIV
 	tristate "NOP USB Transceiver Driver"
@@ -57,27 +57,6 @@ config NOP_USB_XCEIV
 	  This driver is to be used by all the usb transceiver which are either
 	  built-in with usb ip or which are autonomous and doesn't require any
 	  phy programming such as ISP1x04 etc.
-
-config OMAP_CONTROL_USB
-	tristate "OMAP CONTROL USB Driver"
-	depends on ARCH_OMAP2PLUS || COMPILE_TEST
-	help
-	  Enable this to add support for the USB part present in the control
-	  module. This driver has API to power on the USB2 PHY and to write to
-	  the mailbox. The mailbox is present only in omap4 and the register to
-	  power on the USB2 PHY is present in OMAP4 and OMAP5. OMAP5 has an
-	  additional register to power on USB3 PHY.
-
-config OMAP_USB3
-	tristate "OMAP USB3 PHY Driver"
-	depends on ARCH_OMAP2PLUS || COMPILE_TEST
-	select OMAP_CONTROL_USB
-	select USB_PHY
-	help
-	  Enable this to support the USB3 PHY that is part of SOC. This
-	  driver takes care of all the PHY functionality apart from comparator.
-	  This driver interacts with the "OMAP Control USB Driver" to power
-	  on/off the PHY.
 
 config AM335X_CONTROL_USB
 	tristate
@@ -136,6 +115,31 @@ config USB_GPIO_VBUS
 	  optionally control of a D+ pullup GPIO as well as a VBUS
 	  current limit regulator.
 
+config OMAP_OTG
+	tristate "OMAP USB OTG controller driver"
+	depends on ARCH_OMAP_OTG && EXTCON
+	help
+	  Enable this to support some transceivers on OMAP1 platforms. OTG
+	  controller is needed to switch between host and peripheral modes.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called phy-omap-otg.
+
+config TAHVO_USB
+	tristate "Tahvo USB transceiver driver"
+	depends on MFD_RETU && EXTCON
+	select USB_PHY
+	help
+	  Enable this to support USB transceiver on Tahvo. This is used
+	  at least on Nokia 770.
+
+config TAHVO_USB_HOST_BY_DEFAULT
+	depends on TAHVO_USB
+	boolean "Device in USB host mode by default"
+	help
+	  Say Y here, if you want the device to enter USB host mode
+	  by default on bootup.
+
 config USB_ISP1301
 	tristate "NXP ISP1301 USB transceiver support"
 	depends on USB || USB_GADGET
@@ -147,14 +151,15 @@ config USB_ISP1301
 	  and OTG drivers (to be selected separately).
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called isp1301.
+	  module will be called phy-isp1301.
 
 config USB_MSM_OTG
-	tristate "OTG support for Qualcomm on-chip USB controller"
-	depends on (USB || USB_GADGET) && ARCH_MSM
+	tristate "Qualcomm on-chip USB OTG controller support"
+	depends on (USB || USB_GADGET) && (ARCH_MSM || ARCH_QCOM || COMPILE_TEST)
+	depends on RESET_CONTROLLER
 	select USB_PHY
 	help
-	  Enable this to support the USB OTG transceiver on MSM chips. It
+	  Enable this to support the USB OTG transceiver on Qualcomm chips. It
 	  handles PHY initialization, clock management, and workarounds
 	  required after resetting the hardware and power management.
 	  This driver is required even for peripheral only or host only
@@ -187,6 +192,7 @@ config USB_MXS_PHY
 config USB_RCAR_PHY
 	tristate "Renesas R-Car USB PHY support"
 	depends on USB || USB_GADGET
+	depends on ARCH_R8A7778 || ARCH_R8A7779 || COMPILE_TEST
 	select USB_PHY
 	help
 	  Say Y here to add support for the Renesas R-Car USB common PHY driver.
@@ -211,7 +217,7 @@ config USB_RCAR_GEN2_PHY
 
 config USB_ULPI
 	bool "Generic ULPI Transceiver Driver"
-	depends on ARM
+	depends on ARM || ARM64
 	help
 	  Enable this to support ULPI connected USB OTG transceivers which
 	  are likely found on embedded boards.

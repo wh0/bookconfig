@@ -452,10 +452,10 @@ static const struct iio_chan_spec ad7291_channels[] = {
 
 static const struct iio_info ad7291_info = {
 	.read_raw = &ad7291_read_raw,
-	.read_event_config_new = &ad7291_read_event_config,
-	.write_event_config_new = &ad7291_write_event_config,
-	.read_event_value_new = &ad7291_read_event_value,
-	.write_event_value_new = &ad7291_write_event_value,
+	.read_event_config = &ad7291_read_event_config,
+	.write_event_config = &ad7291_write_event_config,
+	.read_event_value = &ad7291_read_event_value,
+	.write_event_value = &ad7291_write_event_value,
 	.driver_module = THIS_MODULE,
 };
 
@@ -465,7 +465,7 @@ static int ad7291_probe(struct i2c_client *client,
 	struct ad7291_platform_data *pdata = client->dev.platform_data;
 	struct ad7291_chip_info *chip;
 	struct iio_dev *indio_dev;
-	int ret = 0;
+	int ret;
 
 	indio_dev = devm_iio_device_alloc(&client->dev, sizeof(*chip));
 	if (!indio_dev)
@@ -475,7 +475,7 @@ static int ad7291_probe(struct i2c_client *client,
 	if (pdata && pdata->use_external_ref) {
 		chip->reg = devm_regulator_get(&client->dev, "vref");
 		if (IS_ERR(chip->reg))
-			return ret;
+			return PTR_ERR(chip->reg);
 
 		ret = regulator_enable(chip->reg);
 		if (ret)

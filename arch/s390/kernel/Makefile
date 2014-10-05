@@ -47,9 +47,8 @@ obj-$(CONFIG_SCHED_BOOK)	+= topology.o
 obj-$(CONFIG_HIBERNATION)	+= suspend.o swsusp_asm64.o
 obj-$(CONFIG_AUDIT)		+= audit.o
 compat-obj-$(CONFIG_AUDIT)	+= compat_audit.o
-obj-$(CONFIG_COMPAT)		+= compat_linux.o compat_signal.o \
-					compat_wrapper.o compat_exec_domain.o \
-					$(compat-obj-y)
+obj-$(CONFIG_COMPAT)		+= compat_linux.o compat_signal.o
+obj-$(CONFIG_COMPAT)		+= compat_wrapper.o $(compat-obj-y)
 
 obj-$(CONFIG_STACKTRACE)	+= stacktrace.o
 obj-$(CONFIG_KPROBES)		+= kprobes.o
@@ -60,7 +59,8 @@ obj-$(CONFIG_FTRACE_SYSCALLS)  += ftrace.o
 obj-$(CONFIG_CRASH_DUMP)	+= crash_dump.o
 
 ifdef CONFIG_64BIT
-obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o perf_cpum_cf.o
+obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o perf_cpum_cf.o perf_cpum_sf.o \
+						perf_cpum_cf_events.o
 obj-y				+= runtime_instr.o cache.o
 endif
 

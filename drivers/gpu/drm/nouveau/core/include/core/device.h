@@ -38,7 +38,9 @@ enum nv_subdev_type {
 	NVDEV_SUBDEV_THERM,
 	NVDEV_SUBDEV_CLOCK,
 
-	NVDEV_ENGINE_DMAOBJ,
+	NVDEV_ENGINE_FIRST,
+	NVDEV_ENGINE_DMAOBJ = NVDEV_ENGINE_FIRST,
+	NVDEV_ENGINE_IFB,
 	NVDEV_ENGINE_FIFO,
 	NVDEV_ENGINE_SW,
 	NVDEV_ENGINE_GR,
@@ -64,12 +66,14 @@ struct nouveau_device {
 	struct list_head head;
 
 	struct pci_dev *pdev;
+	struct platform_device *platformdev;
 	u64 handle;
 
 	const char *cfgopt;
 	const char *dbgopt;
 	const char *name;
 	const char *cname;
+	u64 disable_mask;
 
 	enum {
 		NV_04    = 0x04,
@@ -82,6 +86,7 @@ struct nouveau_device {
 		NV_C0    = 0xc0,
 		NV_D0    = 0xd0,
 		NV_E0    = 0xe0,
+		GM100    = 0x110,
 	} card_type;
 	u32 chipset;
 	u32 crystal;
@@ -137,5 +142,33 @@ nv_device_match(struct nouveau_object *object, u16 dev, u16 ven, u16 sub)
 	       device->pdev->subsystem_vendor == ven &&
 	       device->pdev->subsystem_device == sub;
 }
+
+static inline bool
+nv_device_is_pci(struct nouveau_device *device)
+{
+	return device->pdev != NULL;
+}
+
+static inline struct device *
+nv_device_base(struct nouveau_device *device)
+{
+	return nv_device_is_pci(device) ? &device->pdev->dev :
+					  &device->platformdev->dev;
+}
+
+resource_size_t
+nv_device_resource_start(struct nouveau_device *device, unsigned int bar);
+
+resource_size_t
+nv_device_resource_len(struct nouveau_device *device, unsigned int bar);
+
+dma_addr_t
+nv_device_map_page(struct nouveau_device *device, struct page *page);
+
+void
+nv_device_unmap_page(struct nouveau_device *device, dma_addr_t addr);
+
+int
+nv_device_get_irq(struct nouveau_device *device, bool stall);
 
 #endif

@@ -37,8 +37,10 @@ struct bcm_link_request {
 
 union u_ip_address {
 	struct {
-		ULONG ulIpv4Addr[MAX_IP_RANGE_LENGTH]; /* Source Ip Address Range */
-		ULONG ulIpv4Mask[MAX_IP_RANGE_LENGTH]; /* Source Ip Mask Address Range */
+		/* Source Ip Address Range */
+		ULONG ulIpv4Addr[MAX_IP_RANGE_LENGTH];
+		 /* Source Ip Mask Address Range */
+		ULONG ulIpv4Mask[MAX_IP_RANGE_LENGTH];
 	};
 	struct {
 		ULONG ulIpv6Addr[MAX_IP_RANGE_LENGTH * 4]; /* Source Ip Address Range */
@@ -378,7 +380,7 @@ struct bcm_mini_adapter {
 	UINT			uiFlashLayoutMinorVersion;
 	bool			bAllDSDWriteAllow;
 	bool			bSigCorrupted;
-	/* this should be set who so ever want to change the Headers. after Wrtie it should be reset immediately. */
+	/* this should be set who so ever want to change the Headers. after Write it should be reset immediately. */
 	bool			bHeaderChangeAllowed;
 	int			SelectedChip;
 	bool			bEndPointHalted;

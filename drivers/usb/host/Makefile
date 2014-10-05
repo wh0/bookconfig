@@ -2,8 +2,6 @@
 # Makefile for USB Host Controller Drivers
 #
 
-ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG
-
 # tell define_trace.h where to find the xhci trace header
 CFLAGS_xhci-trace.o := -I$(src)
 
@@ -21,6 +19,9 @@ xhci-hcd-$(CONFIG_PCI)	+= xhci-pci.o
 
 ifneq ($(CONFIG_USB_XHCI_PLATFORM), )
 	xhci-hcd-y		+= xhci-plat.o
+ifneq ($(CONFIG_USB_XHCI_MVEBU), )
+	xhci-hcd-y		+= xhci-mvebu.o
+endif
 endif
 
 obj-$(CONFIG_USB_WHCI_HCD)	+= whci/
@@ -72,3 +73,4 @@ obj-$(CONFIG_USB_HCD_BCMA)	+= bcma-hcd.o
 obj-$(CONFIG_USB_HCD_SSB)	+= ssb-hcd.o
 obj-$(CONFIG_USB_FUSBH200_HCD)	+= fusbh200-hcd.o
 obj-$(CONFIG_USB_FOTG210_HCD)	+= fotg210-hcd.o
+obj-$(CONFIG_USB_MAX3421_HCD)	+= max3421-hcd.o

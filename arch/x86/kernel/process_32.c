@@ -24,7 +24,6 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/reboot.h>
-#include <linux/init.h>
 #include <linux/mc146818rtc.h>
 #include <linux/module.h>
 #include <linux/kallsyms.h>
@@ -314,6 +313,10 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	 * to date.
 	 */
 	arch_end_context_switch(next_p);
+
+	this_cpu_write(kernel_stack,
+		  (unsigned long)task_stack_page(next_p) +
+		  THREAD_SIZE - KERNEL_STACK_OFFSET);
 
 	/*
 	 * Restore %gs if needed (which is common)

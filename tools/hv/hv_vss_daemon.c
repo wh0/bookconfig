@@ -22,7 +22,6 @@
 #include <sys/socket.h>
 #include <sys/poll.h>
 #include <sys/ioctl.h>
-#include <linux/types.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <mntent.h>
@@ -87,6 +86,8 @@ static int vss_operate(int operation)
 		if (strncmp(ent->mnt_fsname, match, strlen(match)))
 			continue;
 		if (strcmp(ent->mnt_type, "iso9660") == 0)
+			continue;
+		if (strcmp(ent->mnt_type, "vfat") == 0)
 			continue;
 		if (strcmp(ent->mnt_dir, "/") == 0) {
 			root_seen = 1;

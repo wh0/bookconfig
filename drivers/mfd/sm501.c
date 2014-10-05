@@ -1710,7 +1710,7 @@ static int sm501_plat_remove(struct platform_device *dev)
 	return 0;
 }
 
-static DEFINE_PCI_DEVICE_TABLE(sm501_pci_tbl) = {
+static const struct pci_device_id sm501_pci_tbl[] = {
 	{ 0x126f, 0x0501, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
 	{ 0, },
 };
@@ -1726,7 +1726,7 @@ static struct pci_driver sm501_pci_driver = {
 
 MODULE_ALIAS("platform:sm501");
 
-static struct of_device_id of_sm501_match_tbl[] = {
+static const struct of_device_id of_sm501_match_tbl[] = {
 	{ .compatible = "smi,sm501", },
 	{ /* end */ }
 };

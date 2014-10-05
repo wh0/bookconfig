@@ -27,7 +27,7 @@
 #include <linux/io.h>
 #include <linux/usb/musb-omap.h>
 #include <linux/usb/phy_companion.h>
-#include <linux/usb/omap_usb.h>
+#include <linux/phy/omap_usb.h>
 #include <linux/i2c/twl.h>
 #include <linux/regulator/consumer.h>
 #include <linux/err.h>
@@ -328,7 +328,7 @@ static int twl6030_usb_probe(struct platform_device *pdev)
 	struct device		*dev = &pdev->dev;
 	struct twl4030_usb_data	*pdata = dev_get_platdata(dev);
 
-	twl = devm_kzalloc(dev, sizeof *twl, GFP_KERNEL);
+	twl = devm_kzalloc(dev, sizeof(*twl), GFP_KERNEL);
 	if (!twl)
 		return -ENOMEM;
 

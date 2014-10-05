@@ -47,7 +47,6 @@
 #include <linux/quotaops.h>
 #include <linux/libcfs/libcfs.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/lustre_compat25.h>
 #include <lvfs.h>
 
@@ -56,7 +55,7 @@
 
 struct lprocfs_stats *obd_memory = NULL;
 EXPORT_SYMBOL(obd_memory);
-/* refine later and change to seqlock or simlar from libcfs */
+/* refine later and change to seqlock or similar from libcfs */
 
 /* Debugging check only needed during development */
 #ifdef OBD_CTXT_DEBUG
@@ -224,7 +223,7 @@ int lustre_rename(struct dentry *dir, struct vfsmount *mnt,
 		GOTO(put_old, err = PTR_ERR(dchild_new));
 
 	err = ll_vfs_rename(dir->d_inode, dchild_old, mnt,
-			    dir->d_inode, dchild_new, mnt, NULL);
+			    dir->d_inode, dchild_new, mnt);
 
 	dput(dchild_new);
 put_old:

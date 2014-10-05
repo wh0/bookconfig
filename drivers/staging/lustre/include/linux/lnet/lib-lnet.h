@@ -181,7 +181,7 @@ lnet_net_lock_current(void)
 #define MAX_PORTALS     64
 
 /* these are only used by code with LNET_USE_LIB_FREELIST, but we still
- * exported them to !LNET_USE_LIB_FREELIST for easy implemetation */
+ * exported them to !LNET_USE_LIB_FREELIST for easy implementation */
 #define LNET_FL_MAX_MES		2048
 #define LNET_FL_MAX_MDS		2048
 #define LNET_FL_MAX_EQS		512
@@ -628,7 +628,7 @@ void lnet_ni_free(lnet_ni_t *ni);
 static inline int
 lnet_nid2peerhash(lnet_nid_t nid)
 {
-	return cfs_hash_long(nid, LNET_PEER_HASH_BITS);
+	return hash_long(nid, LNET_PEER_HASH_BITS);
 }
 
 static inline struct list_head *
@@ -650,12 +650,13 @@ extern lnet_ni_t *lnet_net2ni(__u32 net);
 
 int lnet_notify(lnet_ni_t *ni, lnet_nid_t peer, int alive, cfs_time_t when);
 void lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, cfs_time_t when);
-int lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway_nid);
+int lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway_nid,
+		   unsigned int priority);
 int lnet_check_routes(void);
 int lnet_del_route(__u32 net, lnet_nid_t gw_nid);
 void lnet_destroy_routes(void);
 int lnet_get_route(int idx, __u32 *net, __u32 *hops,
-		   lnet_nid_t *gateway, __u32 *alive);
+		   lnet_nid_t *gateway, __u32 *alive, __u32 *priority);
 void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);

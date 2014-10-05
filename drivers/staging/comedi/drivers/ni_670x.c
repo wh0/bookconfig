@@ -246,9 +246,6 @@ static int ni_670x_auto_attach(struct comedi_device *dev,
 	/* Config of ao registers */
 	writel(0x00, devpriv->mite->daq_io_addr + AO_CONTROL_OFFSET);
 
-	dev_info(dev->class_dev, "%s: %s attached\n",
-		dev->driver->driver_name, dev->board_name);
-
 	return 0;
 }
 
@@ -282,7 +279,7 @@ static int ni_670x_pci_probe(struct pci_dev *dev,
 	return comedi_pci_auto_config(dev, &ni_670x_driver, id->driver_data);
 }
 
-static DEFINE_PCI_DEVICE_TABLE(ni_670x_pci_table) = {
+static const struct pci_device_id ni_670x_pci_table[] = {
 	{ PCI_VDEVICE(NI, 0x1290), BOARD_PCI6704 },
 	{ PCI_VDEVICE(NI, 0x1920), BOARD_PXI6704 },
 	{ PCI_VDEVICE(NI, 0x2c90), BOARD_PCI6703 },

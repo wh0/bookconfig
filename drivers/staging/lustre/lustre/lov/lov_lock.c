@@ -71,7 +71,7 @@ static struct lov_sublock_env *lov_sublock_env_get(const struct lu_env *env,
 	/*
 	 * FIXME: We tend to use the subio's env & io to call the sublock
 	 * lock operations because osc lock sometimes stores some control
-	 * variables in thread's IO infomation(Now only lockless information).
+	 * variables in thread's IO information(Now only lockless information).
 	 * However, if the lock's host(object) is different from the object
 	 * for current IO, we have no way to get the subenv and subio because
 	 * they are not initialized at all. As a temp fix, in this case,
@@ -144,7 +144,7 @@ static struct cl_lock *lov_sublock_alloc(const struct lu_env *env,
 
 	LASSERT(idx < lck->lls_nr);
 
-	OBD_SLAB_ALLOC_PTR_GFP(link, lov_lock_link_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(link, lov_lock_link_kmem, GFP_NOFS);
 	if (link != NULL) {
 		struct lov_sublock_env *subenv;
 		struct lov_lock_sub  *lls;
@@ -346,41 +346,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
 		}
 	}
 	LASSERT(nr == lck->lls_nr);
-	/*
-	 * Then, create sub-locks. Once at least one sub-lock was created,
-	 * top-lock can be reached by other threads.
-	 */
-	for (i = 0; i < lck->lls_nr; ++i) {
-		struct cl_lock       *sublock;
-		struct lov_lock_link *link;
 
-		if (lck->lls_sub[i].sub_lock == NULL) {
-			sublock = lov_sublock_alloc(env, io, lck, i, &link);
-			if (IS_ERR(sublock)) {
-				result = PTR_ERR(sublock);
-				break;
-			}
-			cl_lock_get_trust(sublock);
-			cl_lock_mutex_get(env, sublock);
-			cl_lock_mutex_get(env, parent);
-			/*
-			 * recheck under mutex that sub-lock wasn't created
-			 * concurrently, and that top-lock is still alive.
-			 */
-			if (lck->lls_sub[i].sub_lock == NULL &&
-			    parent->cll_state < CLS_FREEING) {
-				lov_sublock_adopt(env, lck, sublock, i, link);
-				cl_lock_mutex_put(env, parent);
-			} else {
-				OBD_SLAB_FREE_PTR(link, lov_lock_link_kmem);
-				cl_lock_mutex_put(env, parent);
-				cl_lock_unhold(env, sublock,
-					       "lov-parent", parent);
-			}
-			cl_lock_mutex_put(env, sublock);
-			cl_lock_put(env, sublock);
-		}
-	}
 	/*
 	 * Some sub-locks can be missing at this point. This is not a problem,
 	 * because enqueue will create them anyway. Main duty of this function
@@ -533,7 +499,7 @@ static int lov_lock_enqueue_one(const struct lu_env *env, struct lov_lock *lck,
 static int lov_sublock_fill(const struct lu_env *env, struct cl_lock *parent,
 			    struct cl_io *io, struct lov_lock *lck, int idx)
 {
-	struct lov_lock_link *link;
+	struct lov_lock_link *link = NULL;
 	struct cl_lock       *sublock;
 	int		   result;
 
@@ -1159,7 +1125,7 @@ int lov_lock_init_raid0(const struct lu_env *env, struct cl_object *obj,
 	struct lov_lock *lck;
 	int result;
 
-	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, GFP_NOFS);
 	if (lck != NULL) {
 		cl_lock_slice_add(lock, &lck->lls_cl, obj, &lov_lock_ops);
 		result = lov_lock_sub_init(env, lck, io);
@@ -1194,7 +1160,7 @@ int lov_lock_init_empty(const struct lu_env *env, struct cl_object *obj,
 	struct lov_lock *lck;
 	int result = -ENOMEM;
 
-	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, GFP_NOFS);
 	if (lck != NULL) {
 		cl_lock_slice_add(lock, &lck->lls_cl, obj, &lov_empty_lock_ops);
 		lck->lls_orig = lock->cll_descr;

@@ -68,14 +68,16 @@ int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
  */
 int kvmppc_prepare_to_enter(struct kvm_vcpu *vcpu)
 {
-	int r = 1;
+	int r;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	WARN_ON(irqs_disabled());
+	hard_irq_disable();
+
 	while (true) {
 		if (need_resched()) {
 			local_irq_enable();
 			cond_resched();
-			local_irq_disable();
+			hard_irq_disable();
 			continue;
 		}
 
@@ -101,7 +103,7 @@ int kvmppc_prepare_to_enter(struct kvm_vcpu *vcpu)
 			local_irq_enable();
 			trace_kvm_check_requests(vcpu);
 			r = kvmppc_core_check_requests(vcpu);
-			local_irq_disable();
+			hard_irq_disable();
 			if (r > 0)
 				continue;
 			break;
@@ -113,25 +115,36 @@ int kvmppc_prepare_to_enter(struct kvm_vcpu *vcpu)
 			continue;
 		}
 
-#ifdef CONFIG_PPC64
-		/* lazy EE magic */
-		hard_irq_disable();
-		if (lazy_irq_pending()) {
-			/* Got an interrupt in between, try again */
-			local_irq_enable();
-			local_irq_disable();
-			kvm_guest_exit();
-			continue;
-		}
-#endif
-
 		kvm_guest_enter();
-		break;
+		return 1;
 	}
 
+	/* return to host */
+	local_irq_enable();
 	return r;
 }
 EXPORT_SYMBOL_GPL(kvmppc_prepare_to_enter);
+
+#if defined(CONFIG_PPC_BOOK3S_64) && defined(CONFIG_KVM_BOOK3S_PR_POSSIBLE)
+static void kvmppc_swab_shared(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_arch_shared *shared = vcpu->arch.shared;
+	int i;
+
+	shared->sprg0 = swab64(shared->sprg0);
+	shared->sprg1 = swab64(shared->sprg1);
+	shared->sprg2 = swab64(shared->sprg2);
+	shared->sprg3 = swab64(shared->sprg3);
+	shared->srr0 = swab64(shared->srr0);
+	shared->srr1 = swab64(shared->srr1);
+	shared->dar = swab64(shared->dar);
+	shared->msr = swab64(shared->msr);
+	shared->dsisr = swab32(shared->dsisr);
+	shared->int_pending = swab32(shared->int_pending);
+	for (i = 0; i < ARRAY_SIZE(shared->sr); i++)
+		shared->sr[i] = swab32(shared->sr[i]);
+}
+#endif
 
 int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 {
@@ -143,7 +156,7 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 	unsigned long __maybe_unused param4 = kvmppc_get_gpr(vcpu, 6);
 	unsigned long r2 = 0;
 
-	if (!(vcpu->arch.shared->msr & MSR_SF)) {
+	if (!(kvmppc_get_msr(vcpu) & MSR_SF)) {
 		/* 32 bit mode */
 		param1 &= 0xffffffff;
 		param2 &= 0xffffffff;
@@ -154,8 +167,28 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 	switch (nr) {
 	case KVM_HCALL_TOKEN(KVM_HC_PPC_MAP_MAGIC_PAGE):
 	{
-		vcpu->arch.magic_page_pa = param1;
-		vcpu->arch.magic_page_ea = param2;
+#if defined(CONFIG_PPC_BOOK3S_64) && defined(CONFIG_KVM_BOOK3S_PR_POSSIBLE)
+		/* Book3S can be little endian, find it out here */
+		int shared_big_endian = true;
+		if (vcpu->arch.intr_msr & MSR_LE)
+			shared_big_endian = false;
+		if (shared_big_endian != vcpu->arch.shared_big_endian)
+			kvmppc_swab_shared(vcpu);
+		vcpu->arch.shared_big_endian = shared_big_endian;
+#endif
+
+		if (!(param2 & MAGIC_PAGE_FLAG_NOT_MAPPED_NX)) {
+			/*
+			 * Older versions of the Linux magic page code had
+			 * a bug where they would map their trampoline code
+			 * NX. If that's the case, remove !PR NX capability.
+			 */
+			vcpu->arch.disable_kernel_nx = true;
+			kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
+		}
+
+		vcpu->arch.magic_page_pa = param1 & ~0xfffULL;
+		vcpu->arch.magic_page_ea = param2 & ~0xfffULL;
 
 		r2 = KVM_MAGIC_FEAT_SR | KVM_MAGIC_FEAT_MAS0_TO_SPRG7;
 
@@ -383,6 +416,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_SPAPR_TCE:
 	case KVM_CAP_PPC_ALLOC_HTAB:
 	case KVM_CAP_PPC_RTAS:
+	case KVM_CAP_PPC_FIXUP_HCALL:
 #ifdef CONFIG_KVM_XICS
 	case KVM_CAP_IRQ_XICS:
 #endif
@@ -392,7 +426,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 	case KVM_CAP_PPC_SMT:
 		if (hv_enabled)
-			r = threads_per_core;
+			r = threads_per_subcore;
 		else
 			r = 0;
 		break;
@@ -656,14 +690,14 @@ static void kvmppc_complete_mmio_load(struct kvm_vcpu *vcpu,
 		kvmppc_set_gpr(vcpu, vcpu->arch.io_gpr, gpr);
 		break;
 	case KVM_MMIO_REG_FPR:
-		vcpu->arch.fpr[vcpu->arch.io_gpr & KVM_MMIO_REG_MASK] = gpr;
+		VCPU_FPR(vcpu, vcpu->arch.io_gpr & KVM_MMIO_REG_MASK) = gpr;
 		break;
 #ifdef CONFIG_PPC_BOOK3S
 	case KVM_MMIO_REG_QPR:
 		vcpu->arch.qpr[vcpu->arch.io_gpr & KVM_MMIO_REG_MASK] = gpr;
 		break;
 	case KVM_MMIO_REG_FQPR:
-		vcpu->arch.fpr[vcpu->arch.io_gpr & KVM_MMIO_REG_MASK] = gpr;
+		VCPU_FPR(vcpu, vcpu->arch.io_gpr & KVM_MMIO_REG_MASK) = gpr;
 		vcpu->arch.qpr[vcpu->arch.io_gpr & KVM_MMIO_REG_MASK] = gpr;
 		break;
 #endif
@@ -673,9 +707,19 @@ static void kvmppc_complete_mmio_load(struct kvm_vcpu *vcpu,
 }
 
 int kvmppc_handle_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
-                       unsigned int rt, unsigned int bytes, int is_bigendian)
+		       unsigned int rt, unsigned int bytes,
+		       int is_default_endian)
 {
 	int idx, ret;
+	int is_bigendian;
+
+	if (kvmppc_need_byteswap(vcpu)) {
+		/* Default endianness is "little endian". */
+		is_bigendian = !is_default_endian;
+	} else {
+		/* Default endianness is "big endian". */
+		is_bigendian = is_default_endian;
+	}
 
 	if (bytes > sizeof(run->mmio.data)) {
 		printk(KERN_ERR "%s: bad MMIO length: %d\n", __func__,
@@ -711,21 +755,31 @@ EXPORT_SYMBOL_GPL(kvmppc_handle_load);
 
 /* Same as above, but sign extends */
 int kvmppc_handle_loads(struct kvm_run *run, struct kvm_vcpu *vcpu,
-                        unsigned int rt, unsigned int bytes, int is_bigendian)
+			unsigned int rt, unsigned int bytes,
+			int is_default_endian)
 {
 	int r;
 
 	vcpu->arch.mmio_sign_extend = 1;
-	r = kvmppc_handle_load(run, vcpu, rt, bytes, is_bigendian);
+	r = kvmppc_handle_load(run, vcpu, rt, bytes, is_default_endian);
 
 	return r;
 }
 
 int kvmppc_handle_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
-                        u64 val, unsigned int bytes, int is_bigendian)
+			u64 val, unsigned int bytes, int is_default_endian)
 {
 	void *data = run->mmio.data;
 	int idx, ret;
+	int is_bigendian;
+
+	if (kvmppc_need_byteswap(vcpu)) {
+		/* Default endianness is "little endian". */
+		is_bigendian = !is_default_endian;
+	} else {
+		/* Default endianness is "big endian". */
+		is_bigendian = is_default_endian;
+	}
 
 	if (bytes > sizeof(run->mmio.data)) {
 		printk(KERN_ERR "%s: bad MMIO length: %d\n", __func__,
@@ -1003,10 +1057,10 @@ static int kvm_vm_ioctl_get_pvinfo(struct kvm_ppc_pvinfo *pvinfo)
 	u32 inst_nop = 0x60000000;
 #ifdef CONFIG_KVM_BOOKE_HV
 	u32 inst_sc1 = 0x44000022;
-	pvinfo->hcall[0] = inst_sc1;
-	pvinfo->hcall[1] = inst_nop;
-	pvinfo->hcall[2] = inst_nop;
-	pvinfo->hcall[3] = inst_nop;
+	pvinfo->hcall[0] = cpu_to_be32(inst_sc1);
+	pvinfo->hcall[1] = cpu_to_be32(inst_nop);
+	pvinfo->hcall[2] = cpu_to_be32(inst_nop);
+	pvinfo->hcall[3] = cpu_to_be32(inst_nop);
 #else
 	u32 inst_lis = 0x3c000000;
 	u32 inst_ori = 0x60000000;
@@ -1022,10 +1076,10 @@ static int kvm_vm_ioctl_get_pvinfo(struct kvm_ppc_pvinfo *pvinfo)
 	 *    sc
 	 *    nop
 	 */
-	pvinfo->hcall[0] = inst_lis | ((KVM_SC_MAGIC_R0 >> 16) & inst_imm_mask);
-	pvinfo->hcall[1] = inst_ori | (KVM_SC_MAGIC_R0 & inst_imm_mask);
-	pvinfo->hcall[2] = inst_sc;
-	pvinfo->hcall[3] = inst_nop;
+	pvinfo->hcall[0] = cpu_to_be32(inst_lis | ((KVM_SC_MAGIC_R0 >> 16) & inst_imm_mask));
+	pvinfo->hcall[1] = cpu_to_be32(inst_ori | (KVM_SC_MAGIC_R0 & inst_imm_mask));
+	pvinfo->hcall[2] = cpu_to_be32(inst_sc);
+	pvinfo->hcall[3] = cpu_to_be32(inst_nop);
 #endif
 
 	pvinfo->flags = KVM_PPC_PVINFO_FLAGS_EV_IDLE;

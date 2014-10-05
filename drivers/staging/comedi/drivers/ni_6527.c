@@ -215,7 +215,7 @@ static irqreturn_t ni6527_interrupt(int irq, void *d)
 		return IRQ_NONE;
 
 	if (status & NI6527_STATUS_EDGE) {
-		comedi_buf_put(s->async, 0);
+		comedi_buf_put(s, 0);
 		s->async->events |= COMEDI_CB_EOS;
 		comedi_event(dev, s);
 	}
@@ -253,7 +253,7 @@ static int ni6527_intr_cmdtest(struct comedi_device *dev,
 	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
 	err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 	err |= cfc_check_trigger_arg_is(&cmd->convert_arg, 0);
-	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, 1);
+	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 	err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
 	if (err)
@@ -421,6 +421,7 @@ static int ni6527_auto_attach(struct comedi_device *dev,
 		s->range_table	= &range_digital;
 		s->insn_config	= ni6527_intr_insn_config;
 		s->insn_bits	= ni6527_intr_insn_bits;
+		s->len_chanlist	= 1;
 		s->do_cmdtest	= ni6527_intr_cmdtest;
 		s->do_cmd	= ni6527_intr_cmd;
 		s->cancel	= ni6527_intr_cancel;
@@ -455,7 +456,7 @@ static int ni6527_pci_probe(struct pci_dev *dev,
 	return comedi_pci_auto_config(dev, &ni6527_driver, id->driver_data);
 }
 
-static DEFINE_PCI_DEVICE_TABLE(ni6527_pci_table) = {
+static const struct pci_device_id ni6527_pci_table[] = {
 	{ PCI_VDEVICE(NI, 0x2b10), BOARD_PXI6527 },
 	{ PCI_VDEVICE(NI, 0x2b20), BOARD_PCI6527 },
 	{ 0 }

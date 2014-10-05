@@ -265,9 +265,9 @@ static void wusbhc_devconnect_acked_work(struct work_struct *work)
  * Addresses: because WUSB hosts have no downstream hubs, we can do a
  *            1:1 mapping between 'port number' and device
  *            address. This simplifies many things, as during this
- *            initial connect phase the USB stack has no knoledge of
+ *            initial connect phase the USB stack has no knowledge of
  *            the device and hasn't assigned an address yet--we know
- *            USB's choose_address() will use the same euristics we
+ *            USB's choose_address() will use the same heuristics we
  *            use here, so we can assume which address will be assigned.
  *
  *            USB stack always assigns address 1 to the root hub, so
@@ -284,7 +284,7 @@ void wusbhc_devconnect_ack(struct wusbhc *wusbhc, struct wusb_dn_connect *dnc,
 	struct device *dev = wusbhc->dev;
 	struct wusb_dev *wusb_dev;
 	struct wusb_port *port;
-	unsigned idx, devnum;
+	unsigned idx;
 
 	mutex_lock(&wusbhc->mutex);
 
@@ -311,8 +311,6 @@ void wusbhc_devconnect_ack(struct wusbhc *wusbhc, struct wusb_dn_connect *dnc,
 		 *       connection, right? */
 		goto error_unlock;
 	}
-
-	devnum = idx + 2;
 
 	/* Make sure we are using no crypto on that "virtual port" */
 	wusbhc->set_ptk(wusbhc, idx, 0, NULL, 0);

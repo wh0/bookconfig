@@ -94,24 +94,23 @@ If you do not specify any options, they will default to
 /* mask of the bit at STINR to check end of conversion */
 #define ADQ12B_EOC     0x20
 
-#define TIMEOUT        20
-
 /* available ranges through the PGA gains */
-static const struct comedi_lrange range_adq12b_ai_bipolar = { 4, {
-								  BIP_RANGE(5),
-								  BIP_RANGE(2),
-								  BIP_RANGE(1),
-								  BIP_RANGE(0.5)
-								  }
+static const struct comedi_lrange range_adq12b_ai_bipolar = {
+	4, {
+		BIP_RANGE(5),
+		BIP_RANGE(2),
+		BIP_RANGE(1),
+		BIP_RANGE(0.5)
+	}
 };
 
-static const struct comedi_lrange range_adq12b_ai_unipolar = { 4, {
-								   UNI_RANGE(5),
-								   UNI_RANGE(2),
-								   UNI_RANGE(1),
-								   UNI_RANGE
-								   (0.5)
-								   }
+static const struct comedi_lrange range_adq12b_ai_unipolar = {
+	4, {
+		UNI_RANGE(5),
+		UNI_RANGE(2),
+		UNI_RANGE(1),
+		UNI_RANGE(0.5)
+	}
 };
 
 struct adq12b_private {
@@ -121,19 +120,28 @@ struct adq12b_private {
 	int last_range;
 };
 
-/*
- * "instructions" read/write data in "one-shot" or "software-triggered"
- * mode.
- */
+static int adq12b_ai_eoc(struct comedi_device *dev,
+			 struct comedi_subdevice *s,
+			 struct comedi_insn *insn,
+			 unsigned long context)
+{
+	unsigned char status;
+
+	status = inb(dev->iobase + ADQ12B_STINR);
+	if (status & ADQ12B_EOC)
+		return 0;
+	return -EBUSY;
+}
 
 static int adq12b_ai_rinsn(struct comedi_device *dev,
 			   struct comedi_subdevice *s, struct comedi_insn *insn,
 			   unsigned int *data)
 {
 	struct adq12b_private *devpriv = dev->private;
-	int n, i;
+	int n;
 	int range, channel;
 	unsigned char hi, lo, status;
+	int ret;
 
 	/* change channel and range only if it is different from the previous */
 	range = CR_RANGE(insn->chanspec);
@@ -150,20 +158,14 @@ static int adq12b_ai_rinsn(struct comedi_device *dev,
 	for (n = 0; n < insn->n; n++) {
 
 		/* wait for end of conversion */
-		i = 0;
-		do {
-			/* udelay(1); */
-			status = inb(dev->iobase + ADQ12B_STINR);
-			status = status & ADQ12B_EOC;
-		} while (status == 0 && ++i < TIMEOUT);
-		/* } while (++i < 10); */
+		ret = comedi_timeout(dev, s, insn, adq12b_ai_eoc, 0);
+		if (ret)
+			return ret;
 
 		/* read data */
 		hi = inb(dev->iobase + ADQ12B_ADHIG);
 		lo = inb(dev->iobase + ADQ12B_ADLOW);
 
-		/* printk("debug: chan=%d range=%d status=%d hi=%d lo=%d\n",
-		       channel, range, status,  hi, lo); */
 		data[n] = (hi << 8) | lo;
 
 	}

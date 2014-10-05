@@ -561,7 +561,6 @@ static int dummy_disable(struct usb_ep *_ep)
 	struct dummy_ep		*ep;
 	struct dummy		*dum;
 	unsigned long		flags;
-	int			retval;
 
 	ep = usb_ep_to_dummy_ep(_ep);
 	if (!_ep || !ep->desc || _ep->name == ep0name)
@@ -571,12 +570,11 @@ static int dummy_disable(struct usb_ep *_ep)
 	spin_lock_irqsave(&dum->lock, flags);
 	ep->desc = NULL;
 	ep->stream_en = 0;
-	retval = 0;
 	nuke(dum, ep);
 	spin_unlock_irqrestore(&dum->lock, flags);
 
 	dev_dbg(udc_dev(dum), "disabled %s\n", _ep->name);
-	return retval;
+	return 0;
 }
 
 static struct usb_request *dummy_alloc_request(struct usb_ep *_ep,
@@ -951,7 +949,7 @@ static void init_dummy_udc_hw(struct dummy *dum)
 		list_add_tail(&ep->ep.ep_list, &dum->gadget.ep_list);
 		ep->halted = ep->wedged = ep->already_seen =
 				ep->setup_stage = 0;
-		ep->ep.maxpacket = ~0;
+		usb_ep_set_maxpacket_limit(&ep->ep, ~0);
 		ep->ep.max_streams = 16;
 		ep->last_io = jiffies;
 		ep->gadget = &dum->gadget;

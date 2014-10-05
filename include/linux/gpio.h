@@ -3,7 +3,7 @@
 
 #include <linux/errno.h>
 
-/* see Documentation/gpio.txt */
+/* see Documentation/gpio/gpio-legacy.txt */
 
 /* make these flag values available regardless of GPIO kconfig options */
 #define GPIOF_DIR_OUT	(0 << 0)
@@ -90,7 +90,6 @@ void devm_gpio_free(struct device *dev, unsigned int gpio);
 
 #include <linux/kernel.h>
 #include <linux/types.h>
-#include <linux/errno.h>
 #include <linux/bug.h>
 #include <linux/pinctrl/pinctrl.h>
 

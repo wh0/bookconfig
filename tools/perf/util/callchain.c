@@ -15,11 +15,93 @@
 #include <errno.h>
 #include <math.h>
 
+#include "asm/bug.h"
+
 #include "hist.h"
 #include "util.h"
+#include "sort.h"
+#include "machine.h"
 #include "callchain.h"
 
 __thread struct callchain_cursor callchain_cursor;
+
+int
+parse_callchain_report_opt(const char *arg)
+{
+	char *tok, *tok2;
+	char *endptr;
+
+	symbol_conf.use_callchain = true;
+
+	if (!arg)
+		return 0;
+
+	tok = strtok((char *)arg, ",");
+	if (!tok)
+		return -1;
+
+	/* get the output mode */
+	if (!strncmp(tok, "graph", strlen(arg))) {
+		callchain_param.mode = CHAIN_GRAPH_ABS;
+
+	} else if (!strncmp(tok, "flat", strlen(arg))) {
+		callchain_param.mode = CHAIN_FLAT;
+	} else if (!strncmp(tok, "fractal", strlen(arg))) {
+		callchain_param.mode = CHAIN_GRAPH_REL;
+	} else if (!strncmp(tok, "none", strlen(arg))) {
+		callchain_param.mode = CHAIN_NONE;
+		symbol_conf.use_callchain = false;
+		return 0;
+	} else {
+		return -1;
+	}
+
+	/* get the min percentage */
+	tok = strtok(NULL, ",");
+	if (!tok)
+		goto setup;
+
+	callchain_param.min_percent = strtod(tok, &endptr);
+	if (tok == endptr)
+		return -1;
+
+	/* get the print limit */
+	tok2 = strtok(NULL, ",");
+	if (!tok2)
+		goto setup;
+
+	if (tok2[0] != 'c') {
+		callchain_param.print_limit = strtoul(tok2, &endptr, 0);
+		tok2 = strtok(NULL, ",");
+		if (!tok2)
+			goto setup;
+	}
+
+	/* get the call chain order */
+	if (!strncmp(tok2, "caller", strlen("caller")))
+		callchain_param.order = ORDER_CALLER;
+	else if (!strncmp(tok2, "callee", strlen("callee")))
+		callchain_param.order = ORDER_CALLEE;
+	else
+		return -1;
+
+	/* Get the sort key */
+	tok2 = strtok(NULL, ",");
+	if (!tok2)
+		goto setup;
+	if (!strncmp(tok2, "function", strlen("function")))
+		callchain_param.key = CCKEY_FUNCTION;
+	else if (!strncmp(tok2, "address", strlen("address")))
+		callchain_param.key = CCKEY_ADDRESS;
+	else
+		return -1;
+setup:
+	if (callchain_register_param(&callchain_param) < 0) {
+		pr_err("Can't register callchain params\n");
+		return -1;
+	}
+	return 0;
+}
 
 static void
 rb_insert_callchain(struct rb_root *root, struct callchain_node *chain,
@@ -356,19 +438,14 @@ append_chain_children(struct callchain_node *root,
 	/* lookup in childrens */
 	while (*p) {
 		s64 ret;
-		struct callchain_list *cnode;
 
 		parent = *p;
 		rnode = rb_entry(parent, struct callchain_node, rb_node_in);
-		cnode = list_first_entry(&rnode->val, struct callchain_list,
-					 list);
 
-		/* just check first entry */
-		ret = match_chain(node, cnode);
-		if (ret == 0) {
-			append_chain(rnode, cursor, period);
+		/* If at least first entry matches, rely to children */
+		ret = append_chain(rnode, cursor, period);
+		if (ret == 0)
 			goto inc_children_hit;
-		}
 
 		if (ret < 0)
 			p = &parent->rb_left;
@@ -389,11 +466,11 @@ append_chain(struct callchain_node *root,
 	     struct callchain_cursor *cursor,
 	     u64 period)
 {
-	struct callchain_cursor_node *curr_snap = cursor->curr;
 	struct callchain_list *cnode;
 	u64 start = cursor->pos;
 	bool found = false;
 	u64 matches;
+	int cmp = 0;
 
 	/*
 	 * Lookup in the current node
@@ -408,7 +485,8 @@ append_chain(struct callchain_node *root,
 		if (!node)
 			break;
 
-		if (match_chain(node, cnode) != 0)
+		cmp = match_chain(node, cnode);
+		if (cmp)
 			break;
 
 		found = true;
@@ -418,9 +496,8 @@ append_chain(struct callchain_node *root,
 
 	/* matches not, relay no the parent */
 	if (!found) {
-		cursor->curr = curr_snap;
-		cursor->pos = start;
-		return -1;
+		WARN_ONCE(!cmp, "Chain comparison error\n");
+		return cmp;
 	}
 
 	matches = cursor->pos - start;
@@ -530,4 +607,68 @@ int callchain_cursor_append(struct callchain_cursor *cursor,
 	cursor->last = &node->next;
 
 	return 0;
+}
+
+int sample__resolve_callchain(struct perf_sample *sample, struct symbol **parent,
+			      struct perf_evsel *evsel, struct addr_location *al,
+			      int max_stack)
+{
+	if (sample->callchain == NULL)
+		return 0;
+
+	if (symbol_conf.use_callchain || symbol_conf.cumulate_callchain ||
+	    sort__has_parent) {
+		return machine__resolve_callchain(al->machine, evsel, al->thread,
+						  sample, parent, al, max_stack);
+	}
+	return 0;
+}
+
+int hist_entry__append_callchain(struct hist_entry *he, struct perf_sample *sample)
+{
+	if (!symbol_conf.use_callchain)
+		return 0;
+	return callchain_append(he->callchain, &callchain_cursor, sample->period);
+}
+
+int fill_callchain_info(struct addr_location *al, struct callchain_cursor_node *node,
+			bool hide_unresolved)
+{
+	al->map = node->map;
+	al->sym = node->sym;
+	if (node->map)
+		al->addr = node->map->map_ip(node->map, node->ip);
+	else
+		al->addr = node->ip;
+
+	if (al->sym == NULL) {
+		if (hide_unresolved)
+			return 0;
+		if (al->map == NULL)
+			goto out;
+	}
+
+	if (al->map->groups == &al->machine->kmaps) {
+		if (machine__is_host(al->machine)) {
+			al->cpumode = PERF_RECORD_MISC_KERNEL;
+			al->level = 'k';
+		} else {
+			al->cpumode = PERF_RECORD_MISC_GUEST_KERNEL;
+			al->level = 'g';
+		}
+	} else {
+		if (machine__is_host(al->machine)) {
+			al->cpumode = PERF_RECORD_MISC_USER;
+			al->level = '.';
+		} else if (perf_guest) {
+			al->cpumode = PERF_RECORD_MISC_GUEST_USER;
+			al->level = 'u';
+		} else {
+			al->cpumode = PERF_RECORD_MISC_HYPERVISOR;
+			al->level = 'H';
+		}
+	}
+
+out:
+	return 1;
 }

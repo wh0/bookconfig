@@ -7,9 +7,10 @@
 #include <linux/moduleparam.h>
 #include <linux/scatterlist.h>
 #include <linux/mutex.h>
-
+#include <linux/timer.h>
 #include <linux/usb.h>
 
+#define SIMPLE_IO_TIMEOUT	10000	/* in milliseconds */
 
 /*-------------------------------------------------------------------------*/
 
@@ -366,6 +367,7 @@ static int simple_io(
 	int			max = urb->transfer_buffer_length;
 	struct completion	completion;
 	int			retval = 0;
+	unsigned long		expire;
 
 	urb->context = &completion;
 	while (retval == 0 && iterations-- > 0) {
@@ -378,9 +380,15 @@ static int simple_io(
 		if (retval != 0)
 			break;
 
-		/* NOTE:  no timeouts; can't be broken out of by interrupt */
-		wait_for_completion(&completion);
-		retval = urb->status;
+		expire = msecs_to_jiffies(SIMPLE_IO_TIMEOUT);
+		if (!wait_for_completion_timeout(&completion, expire)) {
+			usb_kill_urb(urb);
+			retval = (urb->status == -ENOENT ?
+				  -ETIMEDOUT : urb->status);
+		} else {
+			retval = urb->status;
+		}
+
 		urb->dev = udev;
 		if (retval == 0 && usb_pipein(urb->pipe))
 			retval = simple_check_buf(tdev, urb);
@@ -476,6 +484,14 @@ alloc_sglist(int nents, int max, int vary)
 	return sg;
 }
 
+static void sg_timeout(unsigned long _req)
+{
+	struct usb_sg_request	*req = (struct usb_sg_request *) _req;
+
+	req->status = -ETIMEDOUT;
+	usb_sg_cancel(req);
+}
+
 static int perform_sglist(
 	struct usbtest_dev	*tdev,
 	unsigned		iterations,
@@ -487,6 +503,9 @@ static int perform_sglist(
 {
 	struct usb_device	*udev = testdev_to_usbdev(tdev);
 	int			retval = 0;
+	struct timer_list	sg_timer;
+
+	setup_timer_on_stack(&sg_timer, sg_timeout, (unsigned long) req);
 
 	while (retval == 0 && iterations-- > 0) {
 		retval = usb_sg_init(req, udev, pipe,
@@ -497,7 +516,10 @@ static int perform_sglist(
 
 		if (retval)
 			break;
+		mod_timer(&sg_timer, jiffies +
+				msecs_to_jiffies(SIMPLE_IO_TIMEOUT));
 		usb_sg_wait(req);
+		del_timer_sync(&sg_timer);
 		retval = req->status;
 
 		/* FIXME check resulting data pattern */
@@ -619,8 +641,8 @@ static int is_good_ext(struct usbtest_dev *tdev, u8 *buf)
 	}
 
 	attr = le32_to_cpu(ext->bmAttributes);
-	/* bits[1:4] is used and others are reserved */
-	if (attr & ~0x1e) {	/* reserved == 0 */
+	/* bits[1:15] is used and others are reserved */
+	if (attr & ~0xfffe) {	/* reserved == 0 */
 		ERROR(tdev, "reserved bits set\n");
 		return 0;
 	}
@@ -763,7 +785,7 @@ static int ch9_postconfig(struct usbtest_dev *dev)
 	 * there's always [9.4.3] a bos device descriptor [9.6.2] in USB
 	 * 3.0 spec
 	 */
-	if (le16_to_cpu(udev->descriptor.bcdUSB) >= 0x0300) {
+	if (le16_to_cpu(udev->descriptor.bcdUSB) >= 0x0210) {
 		struct usb_bos_descriptor *bos = NULL;
 		struct usb_dev_cap_header *header = NULL;
 		unsigned total, num, length;
@@ -944,7 +966,7 @@ struct ctrl_ctx {
 	int			last;
 };
 
-#define NUM_SUBCASES	15		/* how many test subcases here? */
+#define NUM_SUBCASES	16		/* how many test subcases here? */
 
 struct subcase {
 	struct usb_ctrlrequest	setup;
@@ -1218,6 +1240,15 @@ test_ctrl_queue(struct usbtest_dev *dev, struct usbtest_param *param)
 			}
 			expected = -EREMOTEIO;
 			break;
+		case 15:
+			req.wValue = cpu_to_le16(USB_DT_BOS << 8);
+			if (udev->bos)
+				len = le16_to_cpu(udev->bos->desc->wTotalLength);
+			else
+				len = sizeof(struct usb_bos_descriptor);
+			if (le16_to_cpu(udev->descriptor.bcdUSB) < 0x0201)
+				expected = -EPIPE;
+			break;
 		default:
 			ERROR(dev, "bogus number of ctrl queue testcases!\n");
 			context.status = -EINVAL;
@@ -1303,6 +1334,11 @@ static int unlink1(struct usbtest_dev *dev, int pipe, int size, int async)
 	urb->context = &completion;
 	urb->complete = unlink1_callback;
 
+	if (usb_pipeout(urb->pipe)) {
+		simple_fill_buf(urb);
+		urb->transfer_flags |= URB_ZERO_PACKET;
+	}
+
 	/* keep the endpoint busy.  there are lots of hc/hcd-internal
 	 * states, and testing should get to all of them over time.
 	 *
@@ -1322,6 +1358,9 @@ static int unlink1(struct usbtest_dev *dev, int pipe, int size, int async)
 	if (async) {
 		while (!completion_done(&completion)) {
 			retval = usb_unlink_urb(urb);
+
+			if (retval == 0 && usb_pipein(urb->pipe))
+				retval = simple_check_buf(dev, urb);
 
 			switch (retval) {
 			case -EBUSY:
@@ -1433,6 +1472,11 @@ static int unlink_queued(struct usbtest_dev *dev, int pipe, unsigned num,
 				unlink_queued_callback, &ctx);
 		ctx.urbs[i]->transfer_dma = buf_dma;
 		ctx.urbs[i]->transfer_flags = URB_NO_TRANSFER_DMA_MAP;
+
+		if (usb_pipeout(ctx.urbs[i]->pipe)) {
+			simple_fill_buf(ctx.urbs[i]);
+			ctx.urbs[i]->transfer_flags |= URB_ZERO_PACKET;
+		}
 	}
 
 	/* Submit all the URBs and then unlink URBs num - 4 and num - 2. */
@@ -1537,8 +1581,17 @@ static int test_halt(struct usbtest_dev *tdev, int ep, struct urb *urb)
 		return retval;
 	}
 	retval = verify_halted(tdev, ep, urb);
-	if (retval < 0)
+	if (retval < 0) {
+		int ret;
+
+		/* clear halt anyways, else further tests will fail */
+		ret = usb_clear_halt(urb->dev, urb->pipe);
+		if (ret)
+			ERROR(tdev, "ep %02x couldn't clear halt, %d\n",
+			      ep, ret);
+
 		return retval;
+	}
 
 	/* clear halt (tests API + protocol), verify it worked */
 	retval = usb_clear_halt(urb->dev, urb->pipe);

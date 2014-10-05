@@ -248,6 +248,20 @@ static int me_dio_insn_bits(struct comedi_device *dev,
 	return insn->n;
 }
 
+static int me_ai_eoc(struct comedi_device *dev,
+		     struct comedi_subdevice *s,
+		     struct comedi_insn *insn,
+		     unsigned long context)
+{
+	struct me_private_data *dev_private = dev->private;
+	unsigned int status;
+
+	status = readw(dev_private->me_regbase + ME_STATUS);
+	if ((status & 0x0004) == 0)
+		return 0;
+	return -EBUSY;
+}
+
 static int me_ai_insn_read(struct comedi_device *dev,
 			   struct comedi_subdevice *s,
 			   struct comedi_insn *insn,
@@ -258,7 +272,7 @@ static int me_ai_insn_read(struct comedi_device *dev,
 	unsigned int rang = CR_RANGE(insn->chanspec);
 	unsigned int aref = CR_AREF(insn->chanspec);
 	unsigned short val;
-	int i;
+	int ret;
 
 	/* stop any running conversion */
 	dev_private->control_1 &= 0xFFFC;
@@ -290,19 +304,14 @@ static int me_ai_insn_read(struct comedi_device *dev,
 	readw(dev_private->me_regbase + ME_ADC_START);
 
 	/* wait for ADC fifo not empty flag */
-	for (i = 100000; i > 0; i--)
-		if (!(readw(dev_private->me_regbase + ME_STATUS) & 0x0004))
-			break;
+	ret = comedi_timeout(dev, s, insn, me_ai_eoc, 0);
+	if (ret)
+		return ret;
 
 	/* get value from ADC fifo */
-	if (i) {
-		val = readw(dev_private->me_regbase + ME_READ_AD_FIFO);
-		val = (val ^ 0x800) & 0x0fff;
-		data[0] = val;
-	} else {
-		dev_err(dev->class_dev, "Cannot get single value\n");
-		return -EIO;
-	}
+	val = readw(dev_private->me_regbase + ME_READ_AD_FIFO);
+	val = (val ^ 0x800) & 0x0fff;
+	data[0] = val;
 
 	/* stop any running conversion */
 	dev_private->control_1 &= 0xFFFC;
@@ -542,9 +551,6 @@ static int me_auto_attach(struct comedi_device *dev,
 	s->insn_bits	= me_dio_insn_bits;
 	s->insn_config	= me_dio_insn_config;
 
-	dev_info(dev->class_dev, "%s: %s attached\n",
-		dev->driver->driver_name, dev->board_name);
-
 	return 0;
 }
 
@@ -576,7 +582,7 @@ static int me_daq_pci_probe(struct pci_dev *dev,
 	return comedi_pci_auto_config(dev, &me_daq_driver, id->driver_data);
 }
 
-static DEFINE_PCI_DEVICE_TABLE(me_daq_pci_table) = {
+static const struct pci_device_id me_daq_pci_table[] = {
 	{ PCI_VDEVICE(MEILHAUS, 0x2600), BOARD_ME2600 },
 	{ PCI_VDEVICE(MEILHAUS, 0x2000), BOARD_ME2000 },
 	{ 0 }

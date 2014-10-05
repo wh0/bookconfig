@@ -31,7 +31,6 @@
 #include <linux/compiler.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/kref.h>
@@ -291,8 +290,7 @@ static struct cmd_obj *cmd_hdl_filter(struct _adapter *padapter,
 
 static u8 check_cmd_fifo(struct _adapter *padapter, uint sz)
 {
-	u8 res = _SUCCESS;
-	return res;
+	return _SUCCESS;
 }
 
 u8 r8712_fw_cmd(struct _adapter *pAdapter, u32 cmd)

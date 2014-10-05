@@ -37,7 +37,7 @@
 #include "util/strfilter.h"
 #include "util/symbol.h"
 #include "util/debug.h"
-#include <lk/debugfs.h>
+#include <api/fs/debugfs.h>
 #include "util/parse-options.h"
 #include "util/probe-finder.h"
 #include "util/probe-event.h"
@@ -59,7 +59,7 @@ static struct {
 	struct perf_probe_event events[MAX_PROBES];
 	struct strlist *dellist;
 	struct line_range line_range;
-	const char *target;
+	char *target;
 	int max_probe_points;
 	struct strfilter *filter;
 } params;
@@ -98,7 +98,10 @@ static int set_target(const char *ptr)
 	 * short module name.
 	 */
 	if (!params.target && ptr && *ptr == '/') {
-		params.target = ptr;
+		params.target = strdup(ptr);
+		if (!params.target)
+			return -ENOMEM;
+
 		found = 1;
 		buf = ptr + (strlen(ptr) - 3);
 
@@ -116,6 +119,9 @@ static int parse_probe_event_argv(int argc, const char **argv)
 	char *buf;
 
 	found_target = set_target(argv[0]);
+	if (found_target < 0)
+		return found_target;
+
 	if (found_target && argc == 1)
 		return 0;
 
@@ -169,6 +175,7 @@ static int opt_set_target(const struct option *opt, const char *str,
 			int unset __maybe_unused)
 {
 	int ret = -ENOENT;
+	char *tmp;
 
 	if  (str && !params.target) {
 		if (!strcmp(opt->long_name, "exec"))
@@ -180,7 +187,19 @@ static int opt_set_target(const struct option *opt, const char *str,
 		else
 			return ret;
 
-		params.target = str;
+		/* Expand given path to absolute path, except for modulename */
+		if (params.uprobes || strchr(str, '/')) {
+			tmp = realpath(str, NULL);
+			if (!tmp) {
+				pr_warning("Failed to get the absolute path of %s: %m\n", str);
+				return ret;
+			}
+		} else {
+			tmp = strdup(str);
+			if (!tmp)
+				return -ENOMEM;
+		}
+		params.target = tmp;
 		ret = 0;
 	}
 
@@ -204,7 +223,6 @@ static int opt_show_lines(const struct option *opt __maybe_unused,
 
 	params.show_lines = true;
 	ret = parse_line_range_desc(str, &params.line_range);
-	INIT_LIST_HEAD(&params.line_range.line_list);
 
 	return ret;
 }
@@ -250,7 +268,35 @@ static int opt_set_filter(const struct option *opt __maybe_unused,
 	return 0;
 }
 
-int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
+static int init_params(void)
+{
+	return line_range__init(&params.line_range);
+}
+
+static void cleanup_params(void)
+{
+	int i;
+
+	for (i = 0; i < params.nevents; i++)
+		clear_perf_probe_event(params.events + i);
+	if (params.dellist)
+		strlist__delete(params.dellist);
+	line_range__clear(&params.line_range);
+	free(params.target);
+	if (params.filter)
+		strfilter__delete(params.filter);
+	memset(&params, 0, sizeof(params));
+}
+
+static void pr_err_with_code(const char *msg, int err)
+{
+	pr_err("%s", msg);
+	pr_debug(" Reason: %s (Code: %d)", strerror(-err), err);
+	pr_err("\n");
+}
+
+static int
+__cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	const char * const probe_usage[] = {
 		"perf probe [<options>] 'PROBEDEF' ['PROBEDEF' ...]",
@@ -340,7 +386,7 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 		}
 		ret = parse_probe_event_argv(argc, argv);
 		if (ret < 0) {
-			pr_err("  Error: Parse Error.  (%d)\n", ret);
+			pr_err_with_code("  Error: Command Parse Error.", ret);
 			return ret;
 		}
 	}
@@ -380,8 +426,7 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 		}
 		ret = show_perf_probe_events();
 		if (ret < 0)
-			pr_err("  Error: Failed to show event list. (%d)\n",
-			       ret);
+			pr_err_with_code("  Error: Failed to show event list.", ret);
 		return ret;
 	}
 	if (params.show_funcs) {
@@ -404,14 +449,14 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 		ret = show_available_funcs(params.target, params.filter,
 					params.uprobes);
 		strfilter__delete(params.filter);
+		params.filter = NULL;
 		if (ret < 0)
-			pr_err("  Error: Failed to show functions."
-			       " (%d)\n", ret);
+			pr_err_with_code("  Error: Failed to show functions.", ret);
 		return ret;
 	}
 
 #ifdef HAVE_DWARF_SUPPORT
-	if (params.show_lines && !params.uprobes) {
+	if (params.show_lines) {
 		if (params.mod_events) {
 			pr_err("  Error: Don't use --line with"
 			       " --add/--del.\n");
@@ -424,7 +469,7 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 
 		ret = show_line_range(&params.line_range, params.target);
 		if (ret < 0)
-			pr_err("  Error: Failed to show lines. (%d)\n", ret);
+			pr_err_with_code("  Error: Failed to show lines.", ret);
 		return ret;
 	}
 	if (params.show_vars) {
@@ -443,17 +488,17 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 					  params.filter,
 					  params.show_ext_vars);
 		strfilter__delete(params.filter);
+		params.filter = NULL;
 		if (ret < 0)
-			pr_err("  Error: Failed to show vars. (%d)\n", ret);
+			pr_err_with_code("  Error: Failed to show vars.", ret);
 		return ret;
 	}
 #endif
 
 	if (params.dellist) {
 		ret = del_perf_probe_events(params.dellist);
-		strlist__delete(params.dellist);
 		if (ret < 0) {
-			pr_err("  Error: Failed to delete events. (%d)\n", ret);
+			pr_err_with_code("  Error: Failed to delete events.", ret);
 			return ret;
 		}
 	}
@@ -464,9 +509,22 @@ int cmd_probe(int argc, const char **argv, const char *prefix __maybe_unused)
 					    params.target,
 					    params.force_add);
 		if (ret < 0) {
-			pr_err("  Error: Failed to add events. (%d)\n", ret);
+			pr_err_with_code("  Error: Failed to add events.", ret);
 			return ret;
 		}
 	}
 	return 0;
+}
+
+int cmd_probe(int argc, const char **argv, const char *prefix)
+{
+	int ret;
+
+	ret = init_params();
+	if (!ret) {
+		ret = __cmd_probe(argc, argv, prefix);
+		cleanup_params();
+	}
+
+	return ret;
 }

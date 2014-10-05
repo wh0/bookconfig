@@ -5,7 +5,9 @@
 #include <linux/mempolicy.h>
 #include <linux/migrate_mode.h>
 
-typedef struct page *new_page_t(struct page *, unsigned long private, int **);
+typedef struct page *new_page_t(struct page *page, unsigned long private,
+				int **reason);
+typedef void free_page_t(struct page *page, unsigned long private);
 
 /*
  * Return values from addresss_space_operations.migratepage():
@@ -35,15 +37,11 @@ enum migrate_reason {
 
 #ifdef CONFIG_MIGRATION
 
-extern void putback_lru_pages(struct list_head *l);
 extern void putback_movable_pages(struct list_head *l);
 extern int migrate_page(struct address_space *,
 			struct page *, struct page *, enum migrate_mode);
-extern int migrate_pages(struct list_head *l, new_page_t x,
+extern int migrate_pages(struct list_head *l, new_page_t new, free_page_t free,
 		unsigned long private, enum migrate_mode mode, int reason);
-
-extern int fail_migrate_page(struct address_space *,
-			struct page *, struct page *);
 
 extern int migrate_prep(void);
 extern int migrate_prep_local(void);
@@ -59,10 +57,10 @@ extern int migrate_page_move_mapping(struct address_space *mapping,
 		int extra_count);
 #else
 
-static inline void putback_lru_pages(struct list_head *l) {}
 static inline void putback_movable_pages(struct list_head *l) {}
-static inline int migrate_pages(struct list_head *l, new_page_t x,
-		unsigned long private, enum migrate_mode mode, int reason)
+static inline int migrate_pages(struct list_head *l, new_page_t new,
+		free_page_t free, unsigned long private, enum migrate_mode mode,
+		int reason)
 	{ return -ENOSYS; }
 
 static inline int migrate_prep(void) { return -ENOSYS; }
@@ -86,7 +84,6 @@ static inline int migrate_huge_page_move_mapping(struct address_space *mapping,
 
 /* Possible settings for the migrate_page() method in address_operations */
 #define migrate_page NULL
-#define fail_migrate_page NULL
 
 #endif /* CONFIG_MIGRATION */
 

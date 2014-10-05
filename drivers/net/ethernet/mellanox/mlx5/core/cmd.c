@@ -32,7 +32,6 @@
 
 #include <asm-generic/kmap_types.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
@@ -621,8 +620,8 @@ static int wait_func(struct mlx5_core_dev *dev, struct mlx5_cmd_work_ent *ent)
 			       mlx5_command_str(msg_to_opcode(ent->in)),
 			       msg_to_opcode(ent->in));
 	}
-	mlx5_core_dbg(dev, "err %d, delivery status %s(%d)\n", err,
-		      deliv_status_to_str(ent->status), ent->status);
+	mlx5_core_dbg(dev, "err %d, delivery status %s(%d)\n",
+		      err, deliv_status_to_str(ent->status), ent->status);
 
 	return err;
 }

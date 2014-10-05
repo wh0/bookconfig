@@ -64,7 +64,6 @@ struct as3722_pin_function {
 };
 
 struct as3722_gpio_pin_control {
-	bool enable_gpio_invert;
 	unsigned mode_prop;
 	int io_function;
 };
@@ -250,6 +249,26 @@ static int as3722_pinctrl_enable(struct pinctrl_dev *pctldev, unsigned function,
 		return ret;
 	}
 	as_pci->gpio_control[group].io_function = function;
+
+	switch (val) {
+	case AS3722_GPIO_IOSF_SD0_OUT:
+	case AS3722_GPIO_IOSF_PWR_GOOD_OUT:
+	case AS3722_GPIO_IOSF_Q32K_OUT:
+	case AS3722_GPIO_IOSF_PWM_OUT:
+	case AS3722_GPIO_IOSF_SD6_LOW_VOLT_LOW:
+		ret = as3722_update_bits(as_pci->as3722, gpio_cntr_reg,
+			AS3722_GPIO_MODE_MASK, AS3722_GPIO_MODE_OUTPUT_VDDH);
+		if (ret < 0) {
+			dev_err(as_pci->dev, "GPIO%d_CTRL update failed %d\n",
+				group, ret);
+			return ret;
+		}
+		as_pci->gpio_control[group].mode_prop =
+				AS3722_GPIO_MODE_OUTPUT_VDDH;
+		break;
+	default:
+		break;
+	}
 	return ret;
 }
 
@@ -300,10 +319,8 @@ static int as3722_pinctrl_gpio_set_direction(struct pinctrl_dev *pctldev,
 		return mode;
 	}
 
-	if (as_pci->gpio_control[offset].enable_gpio_invert)
-		mode |= AS3722_GPIO_INV;
-
-	return as3722_write(as3722, AS3722_GPIOn_CONTROL_REG(offset), mode);
+	return as3722_update_bits(as3722, AS3722_GPIOn_CONTROL_REG(offset),
+				AS3722_GPIO_MODE_MASK, mode);
 }
 
 static const struct pinmux_ops as3722_pinmux_ops = {
@@ -476,9 +493,17 @@ static void as3722_gpio_set(struct gpio_chip *chip, unsigned offset,
 {
 	struct as3722_pctrl_info *as_pci = to_as_pci(chip);
 	struct as3722 *as3722 = as_pci->as3722;
-	int en_invert = as_pci->gpio_control[offset].enable_gpio_invert;
+	int en_invert;
 	u32 val;
 	int ret;
+
+	ret = as3722_read(as3722, AS3722_GPIOn_CONTROL_REG(offset), &val);
+	if (ret < 0) {
+		dev_err(as_pci->dev,
+			"GPIO_CONTROL%d_REG read failed: %d\n", offset, ret);
+		return;
+	}
+	en_invert = !!(val & AS3722_GPIO_INV);
 
 	if (value)
 		val = (en_invert) ? 0 : AS3722_GPIOn_SIGNAL(offset);
@@ -531,7 +556,7 @@ static const struct gpio_chip as3722_gpio_chip = {
 	.direction_input	= as3722_gpio_direction_input,
 	.direction_output	= as3722_gpio_direction_output,
 	.to_irq			= as3722_gpio_to_irq,
-	.can_sleep		= 1,
+	.can_sleep		= true,
 	.ngpio			= AS3722_PIN_NUM,
 	.base			= -1,
 };

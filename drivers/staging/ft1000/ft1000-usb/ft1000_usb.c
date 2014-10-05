@@ -7,7 +7,6 @@
  * $Id:
  *====================================================
  */
-#include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/usb.h>
@@ -36,7 +35,7 @@ static struct usb_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table);
 
-static bool gPollingfailed = false;
+static bool gPollingfailed;
 static int ft1000_poll_thread(void *arg)
 {
 	int ret;
@@ -45,13 +44,13 @@ static int ft1000_poll_thread(void *arg)
 		msleep(10);
 		if (!gPollingfailed) {
 			ret = ft1000_poll(arg);
-			if (ret != STATUS_SUCCESS) {
+			if (ret != 0) {
 				DEBUG("ft1000_poll_thread: polling failed\n");
 				gPollingfailed = true;
 			}
 		}
 	}
-	return STATUS_SUCCESS;
+	return 0;
 }
 
 static int ft1000_probe(struct usb_interface *interface,

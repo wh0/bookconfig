@@ -29,9 +29,9 @@
 
 static bool
 probe_monitoring_device(struct nouveau_i2c_port *i2c,
-			struct i2c_board_info *info)
+			struct i2c_board_info *info, void *data)
 {
-	struct nouveau_therm_priv *priv = (void *)nouveau_therm(i2c);
+	struct nouveau_therm_priv *priv = data;
 	struct nvbios_therm_sensor *sensor = &priv->bios_sensor;
 	struct i2c_client *client;
 
@@ -60,9 +60,9 @@ static struct nouveau_i2c_board_info
 nv_board_infos[] = {
 	{ { I2C_BOARD_INFO("w83l785ts", 0x2d) }, 0 },
 	{ { I2C_BOARD_INFO("w83781d", 0x2d) }, 0  },
-	{ { I2C_BOARD_INFO("adt7473", 0x2e) }, 20  },
-	{ { I2C_BOARD_INFO("adt7473", 0x2d) }, 20  },
-	{ { I2C_BOARD_INFO("adt7473", 0x2c) }, 20  },
+	{ { I2C_BOARD_INFO("adt7473", 0x2e) }, 40  },
+	{ { I2C_BOARD_INFO("adt7473", 0x2d) }, 40  },
+	{ { I2C_BOARD_INFO("adt7473", 0x2c) }, 40  },
 	{ { I2C_BOARD_INFO("f75375", 0x2e) }, 0  },
 	{ { I2C_BOARD_INFO("lm99", 0x4c) }, 0  },
 	{ { I2C_BOARD_INFO("lm90", 0x4c) }, 0  },
@@ -96,7 +96,7 @@ nouveau_therm_ic_ctor(struct nouveau_therm *therm)
 		};
 
 		i2c->identify(i2c, NV_I2C_DEFAULT(0), "monitoring device",
-				  board, probe_monitoring_device);
+			      board, probe_monitoring_device, therm);
 		if (priv->ic)
 			return;
 	}
@@ -108,7 +108,7 @@ nouveau_therm_ic_ctor(struct nouveau_therm *therm)
 		};
 
 		i2c->identify(i2c, NV_I2C_DEFAULT(0), "monitoring device",
-				  board, probe_monitoring_device);
+			      board, probe_monitoring_device, therm);
 		if (priv->ic)
 			return;
 	}
@@ -117,5 +117,5 @@ nouveau_therm_ic_ctor(struct nouveau_therm *therm)
 	   device. Let's try our static list.
 	 */
 	i2c->identify(i2c, NV_I2C_DEFAULT(0), "monitoring device",
-		      nv_board_infos, probe_monitoring_device);
+		      nv_board_infos, probe_monitoring_device, therm);
 }

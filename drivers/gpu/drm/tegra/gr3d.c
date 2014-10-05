@@ -11,6 +11,7 @@
 #include <linux/host1x.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/reset.h>
 #include <linux/tegra-powergate.h>
 
 #include "drm.h"
@@ -22,6 +23,8 @@ struct gr3d {
 	struct host1x_channel *channel;
 	struct clk *clk_secondary;
 	struct clk *clk;
+	struct reset_control *rst_secondary;
+	struct reset_control *rst;
 
 	DECLARE_BITMAP(addr_regs, GR3D_NUM_REGS);
 };
@@ -34,7 +37,7 @@ static inline struct gr3d *to_gr3d(struct tegra_drm_client *client)
 static int gr3d_init(struct host1x_client *client)
 {
 	struct tegra_drm_client *drm = host1x_to_drm_client(client);
-	struct tegra_drm *tegra = dev_get_drvdata(client->parent);
+	struct drm_device *dev = dev_get_drvdata(client->parent);
 	unsigned long flags = HOST1X_SYNCPT_HAS_BASE;
 	struct gr3d *gr3d = to_gr3d(drm);
 
@@ -48,17 +51,17 @@ static int gr3d_init(struct host1x_client *client)
 		return -ENOMEM;
 	}
 
-	return tegra_drm_register_client(tegra, drm);
+	return tegra_drm_register_client(dev->dev_private, drm);
 }
 
 static int gr3d_exit(struct host1x_client *client)
 {
 	struct tegra_drm_client *drm = host1x_to_drm_client(client);
-	struct tegra_drm *tegra = dev_get_drvdata(client->parent);
+	struct drm_device *dev = dev_get_drvdata(client->parent);
 	struct gr3d *gr3d = to_gr3d(drm);
 	int err;
 
-	err = tegra_drm_unregister_client(tegra, drm);
+	err = tegra_drm_unregister_client(dev->dev_private, drm);
 	if (err < 0)
 		return err;
 
@@ -255,15 +258,29 @@ static int gr3d_probe(struct platform_device *pdev)
 		return PTR_ERR(gr3d->clk);
 	}
 
+	gr3d->rst = devm_reset_control_get(&pdev->dev, "3d");
+	if (IS_ERR(gr3d->rst)) {
+		dev_err(&pdev->dev, "cannot get reset\n");
+		return PTR_ERR(gr3d->rst);
+	}
+
 	if (of_device_is_compatible(np, "nvidia,tegra30-gr3d")) {
 		gr3d->clk_secondary = devm_clk_get(&pdev->dev, "3d2");
 		if (IS_ERR(gr3d->clk)) {
 			dev_err(&pdev->dev, "cannot get secondary clock\n");
 			return PTR_ERR(gr3d->clk);
 		}
+
+		gr3d->rst_secondary = devm_reset_control_get(&pdev->dev,
+								"3d2");
+		if (IS_ERR(gr3d->rst_secondary)) {
+			dev_err(&pdev->dev, "cannot get secondary reset\n");
+			return PTR_ERR(gr3d->rst_secondary);
+		}
 	}
 
-	err = tegra_powergate_sequence_power_up(TEGRA_POWERGATE_3D, gr3d->clk);
+	err = tegra_powergate_sequence_power_up(TEGRA_POWERGATE_3D, gr3d->clk,
+						gr3d->rst);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to power up 3D unit\n");
 		return err;
@@ -271,7 +288,8 @@ static int gr3d_probe(struct platform_device *pdev)
 
 	if (gr3d->clk_secondary) {
 		err = tegra_powergate_sequence_power_up(TEGRA_POWERGATE_3D1,
-							gr3d->clk_secondary);
+							gr3d->clk_secondary,
+							gr3d->rst_secondary);
 		if (err < 0) {
 			dev_err(&pdev->dev,
 				"failed to power up secondary 3D unit\n");

@@ -278,22 +278,29 @@ xfs_qm_scall_trunc_qfiles(
 	xfs_mount_t	*mp,
 	uint		flags)
 {
-	int		error = 0, error2 = 0;
+	int		error = EINVAL;
 
-	if (!xfs_sb_version_hasquota(&mp->m_sb) || flags == 0) {
+	if (!xfs_sb_version_hasquota(&mp->m_sb) || flags == 0 ||
+	    (flags & ~XFS_DQ_ALLTYPES)) {
 		xfs_debug(mp, "%s: flags=%x m_qflags=%x",
 			__func__, flags, mp->m_qflags);
 		return XFS_ERROR(EINVAL);
 	}
 
-	if (flags & XFS_DQ_USER)
+	if (flags & XFS_DQ_USER) {
 		error = xfs_qm_scall_trunc_qfile(mp, mp->m_sb.sb_uquotino);
-	if (flags & XFS_DQ_GROUP)
-		error2 = xfs_qm_scall_trunc_qfile(mp, mp->m_sb.sb_gquotino);
+		if (error)
+			return error;
+	}
+	if (flags & XFS_DQ_GROUP) {
+		error = xfs_qm_scall_trunc_qfile(mp, mp->m_sb.sb_gquotino);
+		if (error)
+			return error;
+	}
 	if (flags & XFS_DQ_PROJ)
-		error2 = xfs_qm_scall_trunc_qfile(mp, mp->m_sb.sb_pquotino);
+		error = xfs_qm_scall_trunc_qfile(mp, mp->m_sb.sb_pquotino);
 
-	return error ? error : error2;
+	return error;
 }
 
 /*
@@ -953,7 +960,6 @@ xfs_qm_export_flags(
 STATIC int
 xfs_dqrele_inode(
 	struct xfs_inode	*ip,
-	struct xfs_perag	*pag,
 	int			flags,
 	void			*args)
 {

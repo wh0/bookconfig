@@ -39,7 +39,6 @@
 #include <linux/libcfs/libcfs.h>
 
 #include <obd_class.h>
-#include <obd_lov.h>
 #include <lustre/lustre_idl.h>
 
 #include "lov_internal.h"
@@ -50,7 +49,7 @@ static void lov_init_set(struct lov_request_set *set)
 	atomic_set(&set->set_completes, 0);
 	atomic_set(&set->set_success, 0);
 	atomic_set(&set->set_finish_checked, 0);
-	set->set_cookies = 0;
+	set->set_cookies = NULL;
 	INIT_LIST_HEAD(&set->set_list);
 	atomic_set(&set->set_refcount, 1);
 	init_waitqueue_head(&set->set_waitq);
@@ -835,7 +834,7 @@ int lov_fini_getattr_set(struct lov_request_set *set)
 	return rc;
 }
 
-/* The callback for osc_getattr_async that finilizes a request info when a
+/* The callback for osc_getattr_async that finalizes a request info when a
  * response is received. */
 static int cb_getattr_update(void *cookie, int rc)
 {
@@ -1017,7 +1016,7 @@ int lov_update_setattr_set(struct lov_request_set *set,
 	return rc;
 }
 
-/* The callback for osc_setattr_async that finilizes a request info when a
+/* The callback for osc_setattr_async that finalizes a request info when a
  * response is received. */
 static int cb_setattr_update(void *cookie, int rc)
 {
@@ -1140,7 +1139,7 @@ int lov_update_punch_set(struct lov_request_set *set,
 	return rc;
 }
 
-/* The callback for osc_punch that finilizes a request info when a response
+/* The callback for osc_punch that finalizes a request info when a response
  * is received. */
 static int cb_update_punch(void *cookie, int rc)
 {
@@ -1236,8 +1235,8 @@ int lov_fini_sync_set(struct lov_request_set *set)
 	return rc;
 }
 
-/* The callback for osc_sync that finilizes a request info when a
- * response is recieved. */
+/* The callback for osc_sync that finalizes a request info when a
+ * response is received. */
 static int cb_sync_update(void *cookie, int rc)
 {
 	struct obd_info *oinfo = cookie;
@@ -1407,7 +1406,7 @@ void lov_update_statfs(struct obd_statfs *osfs, struct obd_statfs *lov_sfs,
 	}
 }
 
-/* The callback for osc_statfs_async that finilizes a request info when a
+/* The callback for osc_statfs_async that finalizes a request info when a
  * response is received. */
 static int cb_statfs_update(void *cookie, int rc)
 {
@@ -1485,7 +1484,7 @@ int lov_prep_statfs_set(struct obd_device *obd, struct obd_info *oinfo,
 			continue;
 		}
 
-		/* skip targets that have been explicitely disabled by the
+		/* skip targets that have been explicitly disabled by the
 		 * administrator */
 		if (!lov->lov_tgts[i]->ltd_exp) {
 			CDEBUG(D_HA, "lov idx %d administratively disabled\n", i);

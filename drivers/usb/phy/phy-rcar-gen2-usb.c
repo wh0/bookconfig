@@ -177,15 +177,15 @@ static int rcar_gen2_usb_phy_probe(struct platform_device *pdev)
 	struct clk *clk;
 	int retval;
 
-	pdata = dev_get_platdata(&pdev->dev);
+	pdata = dev_get_platdata(dev);
 	if (!pdata) {
 		dev_err(dev, "No platform data\n");
 		return -EINVAL;
 	}
 
-	clk = devm_clk_get(&pdev->dev, "usbhs");
+	clk = devm_clk_get(dev, "usbhs");
 	if (IS_ERR(clk)) {
-		dev_err(&pdev->dev, "Can't get the clock\n");
+		dev_err(dev, "Can't get the clock\n");
 		return PTR_ERR(clk);
 	}
 
@@ -213,7 +213,7 @@ static int rcar_gen2_usb_phy_probe(struct platform_device *pdev)
 	priv->phy.shutdown = rcar_gen2_usb_phy_shutdown;
 	priv->phy.set_suspend = rcar_gen2_usb_phy_set_suspend;
 
-	retval = usb_add_phy(&priv->phy, USB_PHY_TYPE_USB2);
+	retval = usb_add_phy_dev(&priv->phy);
 	if (retval < 0) {
 		dev_err(dev, "Failed to add USB phy\n");
 		return retval;

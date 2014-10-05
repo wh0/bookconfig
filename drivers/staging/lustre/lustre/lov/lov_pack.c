@@ -44,7 +44,6 @@
 
 #include <lustre_net.h>
 #include <obd.h>
-#include <obd_lov.h>
 #include <obd_class.h>
 #include <obd_support.h>
 #include <lustre/lustre_user.h>
@@ -105,23 +104,21 @@ void lov_dump_lmm(int level, void *lmm)
 {
 	int magic;
 
-	magic = ((struct lov_mds_md_v1 *)(lmm))->lmm_magic;
+	magic = le32_to_cpu(((struct lov_mds_md *)lmm)->lmm_magic);
 	switch (magic) {
 	case LOV_MAGIC_V1:
-		return lov_dump_lmm_v1(level, (struct lov_mds_md_v1 *)(lmm));
+		lov_dump_lmm_v1(level, (struct lov_mds_md_v1 *)lmm);
+		break;
 	case LOV_MAGIC_V3:
-		return lov_dump_lmm_v3(level, (struct lov_mds_md_v3 *)(lmm));
+		lov_dump_lmm_v3(level, (struct lov_mds_md_v3 *)lmm);
+		break;
 	default:
-		CERROR("Cannot recognize lmm_magic %x", magic);
+		CDEBUG(level, "unrecognized lmm_magic %x, assuming %x\n",
+		       magic, LOV_MAGIC_V1);
+		lov_dump_lmm_common(level, lmm);
+		break;
 	}
-	return;
 }
-
-#define LMM_ASSERT(test)						\
-do {								    \
-	if (!(test)) lov_dump_lmm(D_ERROR, lmm);			\
-	LASSERT(test); /* so we know what assertion failed */	   \
-} while (0)
 
 /* Pack LOV object metadata for disk storage.  It is packed in LE byte
  * order and is opaque to the networking layer.
@@ -179,8 +176,9 @@ int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
 		 * Anyway, this is pretty inaccurate since ld_tgt_count now
 		 * represents max index and we should rely on the actual number
 		 * of OSTs instead */
-		stripe_count = lov_mds_md_stripecnt(lov->lov_ocd.ocd_max_easize,
-						    lmm_magic);
+		stripe_count = lov_mds_md_max_stripe_count(
+			lov->lov_ocd.ocd_max_easize, lmm_magic);
+
 		if (stripe_count > lov->desc.ld_tgt_count)
 			stripe_count = lov->desc.ld_tgt_count;
 	}
@@ -266,8 +264,8 @@ __u16 lov_get_stripecnt(struct lov_obd *lov, __u32 magic, __u16 stripe_count)
 	 * larger EA sizes */
 	if (lov->lov_ocd.ocd_connect_flags & OBD_CONNECT_MAX_EASIZE &&
 	    lov->lov_ocd.ocd_max_easize)
-		max_stripes = lov_mds_md_stripecnt(lov->lov_ocd.ocd_max_easize,
-						   magic);
+		max_stripes = lov_mds_md_max_stripe_count(
+			lov->lov_ocd.ocd_max_easize, magic);
 
 	if (stripe_count > max_stripes)
 		stripe_count = max_stripes;
@@ -341,7 +339,8 @@ int lov_free_memmd(struct lov_stripe_md **lsmp)
 
 	*lsmp = NULL;
 	LASSERT(atomic_read(&lsm->lsm_refc) > 0);
-	if ((refc = atomic_dec_return(&lsm->lsm_refc)) == 0) {
+	refc = atomic_dec_return(&lsm->lsm_refc);
+	if (refc == 0) {
 		LASSERT(lsm_op_find(lsm->lsm_magic) != NULL);
 		lsm_op_find(lsm->lsm_magic)->lsm_free(lsm);
 	}

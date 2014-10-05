@@ -348,6 +348,12 @@
 			sdon-inverted;
 		};
 
+		ethernet@d8004000 {
+			compatible = "via,vt8500-rhine";
+			reg = <0xd8004000 0x100>;
+			interrupts = <10>;
+                };
+
 		i2c_0: i2c@d8280000 {
 			compatible = "wm,wm8505-i2c";
 			reg = <0xd8280000 0x1000>;

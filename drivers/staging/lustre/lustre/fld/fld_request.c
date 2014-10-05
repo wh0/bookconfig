@@ -138,9 +138,8 @@ fld_rrb_scan(struct lu_client_fld *fld, seqno_t seq)
 			return target;
 	}
 
-	CERROR("%s: Can't find target by hash %d (seq "LPX64"). "
-	       "Targets (%d):\n", fld->lcf_name, hash, seq,
-	       fld->lcf_count);
+	CERROR("%s: Can't find target by hash %d (seq "LPX64"). Targets (%d):\n",
+		fld->lcf_name, hash, seq, fld->lcf_count);
 
 	list_for_each_entry(target, &fld->lcf_targets, ft_chain) {
 		const char *srv_name = target->ft_srv != NULL  ?
@@ -209,9 +208,8 @@ int fld_client_add_target(struct lu_client_fld *fld,
 	LASSERT(tar->ft_srv != NULL || tar->ft_exp != NULL);
 
 	if (fld->lcf_flags != LUSTRE_FLD_INIT) {
-		CERROR("%s: Attempt to add target %s (idx "LPU64") "
-		       "on fly - skip it\n", fld->lcf_name, name,
-		       tar->ft_idx);
+		CERROR("%s: Attempt to add target %s (idx "LPU64") on fly - skip it\n",
+			fld->lcf_name, name, tar->ft_idx);
 		return 0;
 	} else {
 		CDEBUG(D_INFO, "%s: Adding target %s (idx "
@@ -274,9 +272,9 @@ int fld_client_del_target(struct lu_client_fld *fld, __u64 idx)
 }
 EXPORT_SYMBOL(fld_client_del_target);
 
-#ifdef LPROCFS
 struct proc_dir_entry *fld_type_proc_dir = NULL;
 
+#ifdef LPROCFS
 static int fld_client_proc_init(struct lu_client_fld *fld)
 {
 	int rc;
@@ -476,9 +474,8 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
 	target = fld_client_get_target(fld, seq);
 	LASSERT(target != NULL);
 
-	CDEBUG(D_INFO, "%s: Lookup fld entry (seq: "LPX64") on "
-	       "target %s (idx "LPU64")\n", fld->lcf_name, seq,
-	       fld_target_name(target), target->ft_idx);
+	CDEBUG(D_INFO, "%s: Lookup fld entry (seq: "LPX64") on target %s (idx "LPU64")\n",
+			fld->lcf_name, seq, fld_target_name(target), target->ft_idx);
 
 	res.lsr_start = seq;
 	fld_range_set_type(&res, flags);
@@ -504,10 +501,7 @@ static int __init fld_mod_init(void)
 	fld_type_proc_dir = lprocfs_register(LUSTRE_FLD_NAME,
 					     proc_lustre_root,
 					     NULL, NULL);
-	if (IS_ERR(fld_type_proc_dir))
-		return PTR_ERR(fld_type_proc_dir);
-
-	return 0;
+	return PTR_ERR_OR_ZERO(fld_type_proc_dir);
 }
 
 static void __exit fld_mod_exit(void)

@@ -311,7 +311,7 @@ lstcon_rpc_trans_abort(lstcon_rpc_trans_t *trans, int error)
 
 		sfw_abort_rpc(rpc);
 
-		if  (error != ETIMEDOUT)
+		if (error != ETIMEDOUT)
 			continue;
 
 		nd = crpc->crp_node;
@@ -1346,7 +1346,8 @@ lstcon_rpc_cleanup_wait(void)
 		mutex_unlock(&console_session.ses_mutex);
 
 		CWARN("Session is shutting down, waiting for termination of transactions\n");
-		cfs_pause(cfs_time_seconds(1));
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(cfs_time_seconds(1));
 
 		mutex_lock(&console_session.ses_mutex);
 	}

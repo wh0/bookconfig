@@ -46,17 +46,12 @@
 
 #include "sleep.h" /* To include x86_acpi_suspend_lowlevel */
 static int __initdata acpi_force = 0;
-u32 acpi_rsdt_forced;
 int acpi_disabled;
 EXPORT_SYMBOL(acpi_disabled);
 
 #ifdef	CONFIG_X86_64
 # include <asm/proto.h>
 #endif				/* X86 */
-
-#define BAD_MADT_ENTRY(entry, end) (					    \
-		(!entry) || (unsigned long)entry + sizeof(*entry) > end ||  \
-		((struct acpi_subtable_header *)entry)->length < sizeof(*entry))
 
 #define PREFIX			"ACPI: "
 
@@ -614,10 +609,10 @@ static void acpi_map_cpu2node(acpi_handle handle, int cpu, int physid)
 	int nid;
 
 	nid = acpi_get_node(handle);
-	if (nid == -1 || !node_online(nid))
-		return;
-	set_apicid_to_node(physid, nid);
-	numa_set_node(cpu, nid);
+	if (nid != -1) {
+		set_apicid_to_node(physid, nid);
+		numa_set_node(cpu, nid);
+	}
 #endif
 }
 
@@ -908,10 +903,6 @@ static int __init acpi_parse_madt_lapic_entries(void)
 #ifdef	CONFIG_X86_IO_APIC
 #define MP_ISA_BUS		0
 
-#ifdef CONFIG_X86_ES7000
-extern int es7000_plat;
-#endif
-
 void __init mp_override_legacy_irq(u8 bus_irq, u8 polarity, u8 trigger, u32 gsi)
 {
 	int ioapic;
@@ -960,14 +951,6 @@ void __init mp_config_acpi_legacy_irqs(void)
 #endif
 	set_bit(MP_ISA_BUS, mp_bus_not_pci);
 	pr_debug("Bus #%d is ISA\n", MP_ISA_BUS);
-
-#ifdef CONFIG_X86_ES7000
-	/*
-	 * Older generations of ES7000 have no legacy identity mappings
-	 */
-	if (es7000_plat == 1)
-		return;
-#endif
 
 	/*
 	 * Use the default configuration for the IRQs 0-15.  Unless
@@ -1034,9 +1017,7 @@ static int mp_config_acpi_gsi(struct device *dev, u32 gsi, int trigger,
 
 	if (!acpi_ioapic)
 		return 0;
-	if (!dev)
-		return 0;
-	if (dev->bus != &pci_bus_type)
+	if (!dev || !dev_is_pci(dev))
 		return 0;
 
 	pdev = to_pci_dev(dev);
@@ -1564,7 +1545,7 @@ static int __init parse_acpi(char *arg)
 	}
 	/* acpi=rsdt use RSDT instead of XSDT */
 	else if (strcmp(arg, "rsdt") == 0) {
-		acpi_rsdt_forced = 1;
+		acpi_gbl_do_not_use_xsdt = TRUE;
 	}
 	/* "acpi=noirq" disables ACPI interrupt routing */
 	else if (strcmp(arg, "noirq") == 0) {

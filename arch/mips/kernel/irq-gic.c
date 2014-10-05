@@ -16,7 +16,6 @@
 #include <asm/gic.h>
 #include <asm/setup.h>
 #include <asm/traps.h>
-#include <asm/gcmpregs.h>
 #include <linux/hardirq.h>
 #include <asm-generic/bitops/find.h>
 
@@ -53,6 +52,21 @@ void gic_write_compare(cycle_t cnt)
 				(int)(cnt >> 32));
 	GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_COMPARE_LO),
 				(int)(cnt & 0xffffffff));
+}
+
+void gic_write_cpu_compare(cycle_t cnt, int cpu)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+
+	GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), cpu);
+	GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_COMPARE_HI),
+				(int)(cnt >> 32));
+	GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_COMPARE_LO),
+				(int)(cnt & 0xffffffff));
+
+	local_irq_restore(flags);
 }
 
 cycle_t gic_read_compare(void)
@@ -255,11 +269,13 @@ static void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
 
 	/* Setup Intr to Pin mapping */
 	if (pin & GIC_MAP_TO_NMI_MSK) {
+		int i;
+
 		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)), pin);
 		/* FIXME: hack to route NMI to all cpu's */
-		for (cpu = 0; cpu < NR_CPUS; cpu += 32) {
+		for (i = 0; i < NR_CPUS; i += 32) {
 			GICWRITE(GIC_REG_ADDR(SHARED,
-					  GIC_SH_MAP_TO_VPE_REG_OFF(intr, cpu)),
+					  GIC_SH_MAP_TO_VPE_REG_OFF(intr, i)),
 				 0xffffffff);
 		}
 	} else {

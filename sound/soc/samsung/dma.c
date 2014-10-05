@@ -35,12 +35,6 @@ static const struct snd_pcm_hardware dma_hardware = {
 				    SNDRV_PCM_INFO_BLOCK_TRANSFER |
 				    SNDRV_PCM_INFO_MMAP |
 				    SNDRV_PCM_INFO_MMAP_VALID,
-	.formats		= SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_U16_LE |
-				    SNDRV_PCM_FMTBIT_U8 |
-				    SNDRV_PCM_FMTBIT_S8,
-	.channels_min		= 2,
-	.channels_max		= 2,
 	.buffer_bytes_max	= 128*1024,
 	.period_bytes_min	= PAGE_SIZE,
 	.period_bytes_max	= PAGE_SIZE*2,
@@ -441,17 +435,19 @@ static struct snd_soc_platform_driver samsung_asoc_platform = {
 	.pcm_free	= dma_free_dma_buffers,
 };
 
+void samsung_asoc_init_dma_data(struct snd_soc_dai *dai,
+				struct s3c_dma_params *playback,
+				struct s3c_dma_params *capture)
+{
+	snd_soc_dai_init_dma_data(dai, playback, capture);
+}
+EXPORT_SYMBOL_GPL(samsung_asoc_init_dma_data);
+
 int samsung_asoc_dma_platform_register(struct device *dev)
 {
-	return snd_soc_register_platform(dev, &samsung_asoc_platform);
+	return devm_snd_soc_register_platform(dev, &samsung_asoc_platform);
 }
 EXPORT_SYMBOL_GPL(samsung_asoc_dma_platform_register);
-
-void samsung_asoc_dma_platform_unregister(struct device *dev)
-{
-	snd_soc_unregister_platform(dev);
-}
-EXPORT_SYMBOL_GPL(samsung_asoc_dma_platform_unregister);
 
 MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_DESCRIPTION("Samsung ASoC DMA Driver");

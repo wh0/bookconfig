@@ -89,7 +89,7 @@ int ldlm_proc_setup(void)
 {
 	int rc;
 	struct lprocfs_vars list[] = {
-		{ "dump_namespaces", &ldlm_dump_ns_fops, 0, 0222 },
+		{ "dump_namespaces", &ldlm_dump_ns_fops, NULL, 0222 },
 		{ "dump_granted_max", &ldlm_rw_uint_fops,
 		  &ldlm_dump_granted_max },
 		{ "cancel_unused_locks_before_replay", &ldlm_rw_uint_fops,
@@ -162,7 +162,7 @@ static int lprocfs_ns_resources_seq_show(struct seq_file *m, void *v)
 	struct cfs_hash_bd	  bd;
 	int		    i;
 
-	/* result is not strictly consistant */
+	/* result is not strictly consistent */
 	cfs_hash_for_each_bucket(ns->ns_rs_hash, &bd, i)
 		res += cfs_hash_bd_count_get(&bd);
 	return lprocfs_rd_u64(m, &res);
@@ -322,7 +322,7 @@ void ldlm_namespace_proc_unregister(struct ldlm_namespace *ns)
 		snprintf(lock_name, MAX_STRING_SIZE, name);	\
 		lock_vars[0].data = var;			\
 		lock_vars[0].fops = ops;			\
-		lprocfs_add_vars(ns_pde, lock_vars, 0);		\
+		lprocfs_add_vars(ns_pde, lock_vars, NULL);	\
 	} while (0)
 
 int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
@@ -421,9 +421,9 @@ static unsigned ldlm_res_hop_fid_hash(struct cfs_hash *hs,
 	} else {
 		val = fid_oid(&fid);
 	}
-	hash = cfs_hash_long(hash, hs->hs_bkt_bits);
+	hash = hash_long(hash, hs->hs_bkt_bits);
 	/* give me another random factor */
-	hash -= cfs_hash_long((unsigned long)hs, val % 11 + 3);
+	hash -= hash_long((unsigned long)hs, val % 11 + 3);
 
 	hash <<= hs->hs_cur_bits - hs->hs_bkt_bits;
 	hash |= ldlm_res_hop_hash(hs, key, CFS_HASH_NBKT(hs) - 1);
@@ -762,16 +762,9 @@ static int ldlm_resource_complain(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 	struct ldlm_resource  *res = cfs_hash_object(hs, hnode);
 
 	lock_res(res);
-	CERROR("Namespace %s resource refcount nonzero "
-	       "(%d) after lock cleanup; forcing "
-	       "cleanup.\n",
-	       ldlm_ns_name(ldlm_res_to_ns(res)),
-	       atomic_read(&res->lr_refcount) - 1);
-
-	CERROR("Resource: %p ("LPU64"/"LPU64"/"LPU64"/"
-	       LPU64") (rc: %d)\n", res,
-	       res->lr_name.name[0], res->lr_name.name[1],
-	       res->lr_name.name[2], res->lr_name.name[3],
+	CERROR("%s: namespace resource "DLDLMRES
+	       " (%p) refcount nonzero (%d) after lock cleanup; forcing cleanup.\n",
+	       ldlm_ns_name(ldlm_res_to_ns(res)), PLDLMRES(res), res,
 	       atomic_read(&res->lr_refcount) - 1);
 
 	ldlm_resource_dump(D_ERROR, res);
@@ -881,7 +874,7 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
 
 		/*
 		 * With all requests dropped and the import inactive
-		 * we are gaurenteed all reference will be dropped.
+		 * we are guaranteed all reference will be dropped.
 		 */
 		rc = __ldlm_namespace_free(ns, 1);
 		LASSERT(rc == 0);
@@ -1021,7 +1014,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
 	struct ldlm_resource *res;
 	int idx;
 
-	OBD_SLAB_ALLOC_PTR_GFP(res, ldlm_resource_slab, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(res, ldlm_resource_slab, GFP_NOFS);
 	if (res == NULL)
 		return NULL;
 
@@ -1403,10 +1396,8 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
 	if (!((libcfs_debug | D_ERROR) & level))
 		return;
 
-	CDEBUG(level, "--- Resource: %p ("LPU64"/"LPU64"/"LPU64"/"LPU64
-	       ") (rc: %d)\n", res, res->lr_name.name[0], res->lr_name.name[1],
-	       res->lr_name.name[2], res->lr_name.name[3],
-	       atomic_read(&res->lr_refcount));
+	CDEBUG(level, "--- Resource: "DLDLMRES" (%p) refcount = %d\n",
+	       PLDLMRES(res), res, atomic_read(&res->lr_refcount));
 
 	if (!list_empty(&res->lr_granted)) {
 		CDEBUG(level, "Granted locks (in reverse order):\n");

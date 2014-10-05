@@ -228,8 +228,6 @@ nouveau_gem_ioctl_new(struct drm_device *dev, void *data,
 	struct nouveau_bo *nvbo = NULL;
 	int ret = 0;
 
-	drm->ttm.bdev.dev_mapping = drm->dev->dev_mapping;
-
 	if (!pfb->memtype_valid(pfb, req->info.tile_flags)) {
 		NV_ERROR(cli, "bad page flags: 0x%08x\n", req->info.tile_flags);
 		return -EINVAL;
@@ -463,12 +461,6 @@ validate_list(struct nouveau_channel *chan, struct nouveau_cli *cli,
 	list_for_each_entry(nvbo, list, entry) {
 		struct drm_nouveau_gem_pushbuf_bo *b = &pbbo[nvbo->pbbo_index];
 
-		ret = validate_sync(chan, nvbo);
-		if (unlikely(ret)) {
-			NV_ERROR(cli, "fail pre-validate sync\n");
-			return ret;
-		}
-
 		ret = nouveau_gem_set_domain(&nvbo->gem, b->read_domains,
 					     b->write_domains,
 					     b->valid_domains);
@@ -506,7 +498,7 @@ validate_list(struct nouveau_channel *chan, struct nouveau_cli *cli,
 			b->presumed.valid = 0;
 			relocs++;
 
-			if (DRM_COPY_TO_USER(&upbbo[nvbo->pbbo_index].presumed,
+			if (copy_to_user(&upbbo[nvbo->pbbo_index].presumed,
 					     &b->presumed, sizeof(b->presumed)))
 				return -EFAULT;
 		}
@@ -593,7 +585,7 @@ u_memcpya(uint64_t user, unsigned nmemb, unsigned size)
 	if (!mem)
 		return ERR_PTR(-ENOMEM);
 
-	if (DRM_COPY_FROM_USER(mem, userptr, size)) {
+	if (copy_from_user(mem, userptr, size)) {
 		u_free(mem);
 		return ERR_PTR(-EFAULT);
 	}

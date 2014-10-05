@@ -188,7 +188,7 @@ static int lp_irq_type(struct irq_data *d, unsigned type)
 static int lp_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	unsigned long reg = lp_gpio_reg(chip, offset, LP_CONFIG1);
-	return inl(reg) & IN_LVL_BIT;
+	return !!(inl(reg) & IN_LVL_BIT);
 }
 
 static void lp_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
@@ -301,6 +301,26 @@ static void lp_irq_disable(struct irq_data *d)
 	spin_unlock_irqrestore(&lg->lock, flags);
 }
 
+static int lp_irq_reqres(struct irq_data *d)
+{
+	struct lp_gpio *lg = irq_data_get_irq_chip_data(d);
+
+	if (gpio_lock_as_irq(&lg->chip, irqd_to_hwirq(d))) {
+		dev_err(lg->chip.dev,
+			"unable to lock HW IRQ %lu for IRQ\n",
+			irqd_to_hwirq(d));
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void lp_irq_relres(struct irq_data *d)
+{
+	struct lp_gpio *lg = irq_data_get_irq_chip_data(d);
+
+	gpio_unlock_as_irq(&lg->chip, irqd_to_hwirq(d));
+}
+
 static struct irq_chip lp_irqchip = {
 	.name = "LP-GPIO",
 	.irq_mask = lp_irq_mask,
@@ -308,6 +328,8 @@ static struct irq_chip lp_irqchip = {
 	.irq_enable = lp_irq_enable,
 	.irq_disable = lp_irq_disable,
 	.irq_set_type = lp_irq_type,
+	.irq_request_resources = lp_irq_reqres,
+	.irq_release_resources = lp_irq_relres,
 	.flags = IRQCHIP_SKIP_SET_WAKE,
 };
 
@@ -331,8 +353,7 @@ static int lp_gpio_irq_map(struct irq_domain *d, unsigned int irq,
 {
 	struct lp_gpio *lg = d->host_data;
 
-	irq_set_chip_and_handler_name(irq, &lp_irqchip, handle_simple_irq,
-				      "demux");
+	irq_set_chip_and_handler(irq, &lp_irqchip, handle_simple_irq);
 	irq_set_chip_data(irq, lg);
 	irq_set_irq_type(irq, IRQ_TYPE_NONE);
 
@@ -354,10 +375,8 @@ static int lp_gpio_probe(struct platform_device *pdev)
 	int ret = -ENODEV;
 
 	lg = devm_kzalloc(dev, sizeof(struct lp_gpio), GFP_KERNEL);
-	if (!lg) {
-		dev_err(dev, "can't allocate lp_gpio chip data\n");
+	if (!lg)
 		return -ENOMEM;
-	}
 
 	lg->pdev = pdev;
 	platform_set_drvdata(pdev, lg);
@@ -392,7 +411,7 @@ static int lp_gpio_probe(struct platform_device *pdev)
 	gc->set = lp_gpio_set;
 	gc->base = -1;
 	gc->ngpio = LP_NUM_GPIO;
-	gc->can_sleep = 0;
+	gc->can_sleep = false;
 	gc->dev = dev;
 
 	/* set up interrupts  */
@@ -438,6 +457,7 @@ static const struct dev_pm_ops lp_gpio_pm_ops = {
 
 static const struct acpi_device_id lynxpoint_gpio_acpi_match[] = {
 	{ "INT33C7", 0 },
+	{ "INT3437", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, lynxpoint_gpio_acpi_match);
@@ -469,4 +489,15 @@ static int __init lp_gpio_init(void)
 	return platform_driver_register(&lp_gpio_driver);
 }
 
+static void __exit lp_gpio_exit(void)
+{
+	platform_driver_unregister(&lp_gpio_driver);
+}
+
 subsys_initcall(lp_gpio_init);
+module_exit(lp_gpio_exit);
+
+MODULE_AUTHOR("Mathias Nyman (Intel)");
+MODULE_DESCRIPTION("GPIO interface for Intel Lynxpoint");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:lp_gpio");

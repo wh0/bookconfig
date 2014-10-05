@@ -7,7 +7,7 @@
  * GNU General Public License version 2 only.
  *
  * Copyright (c) 2011 by:
- *	 Mauro Carvalho Chehab <mchehab@redhat.com>
+ *	 Mauro Carvalho Chehab
  */
 
 #include <linux/module.h>
@@ -461,7 +461,7 @@ static const struct pci_id_table pci_dev_descr_ibridge_table[] = {
 /*
  *	pci_device_id	table for which devices we are looking for
  */
-static DEFINE_PCI_DEVICE_TABLE(sbridge_pci_tbl) = {
+static const struct pci_device_id sbridge_pci_tbl[] = {
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_SBRIDGE_IMC_TA)},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_IBRIDGE_IMC_HA0_TA)},
 	{0,}			/* 0 terminated list. */
@@ -915,7 +915,7 @@ static void get_memory_layout(const struct mem_ctl_info *mci)
 	}
 }
 
-struct mem_ctl_info *get_mci_for_node_id(u8 node_id)
+static struct mem_ctl_info *get_mci_for_node_id(u8 node_id)
 {
 	struct sbridge_dev *sbridge_dev;
 
@@ -1263,7 +1263,7 @@ static int sbridge_get_onedevice(struct pci_dev **prev,
 	struct pci_dev *pdev = NULL;
 	u8 bus = 0;
 
-	sbridge_printk(KERN_INFO,
+	sbridge_printk(KERN_DEBUG,
 		"Seeking for: dev %02x.%d PCI ID %04x:%04x\n",
 		dev_descr->dev, dev_descr->func,
 		PCI_VENDOR_ID_INTEL, dev_descr->dev_id);
@@ -1828,6 +1828,10 @@ static int sbridge_mce_check_error(struct notifier_block *nb, unsigned long val,
 	struct mce *mce = (struct mce *)data;
 	struct mem_ctl_info *mci;
 	struct sbridge_pvt *pvt;
+	char *type;
+
+	if (get_edac_report_status() == EDAC_REPORTING_DISABLED)
+		return NOTIFY_DONE;
 
 	mci = get_mci_for_node_id(mce->socketid);
 	if (!mci)
@@ -1843,17 +1847,23 @@ static int sbridge_mce_check_error(struct notifier_block *nb, unsigned long val,
 	if ((mce->status & 0xefff) >> 7 != 1)
 		return NOTIFY_DONE;
 
-	printk("sbridge: HANDLING MCE MEMORY ERROR\n");
+	if (mce->mcgstatus & MCG_STATUS_MCIP)
+		type = "Exception";
+	else
+		type = "Event";
 
-	printk("CPU %d: Machine Check Exception: %Lx Bank %d: %016Lx\n",
-	       mce->extcpu, mce->mcgstatus, mce->bank, mce->status);
-	printk("TSC %llx ", mce->tsc);
-	printk("ADDR %llx ", mce->addr);
-	printk("MISC %llx ", mce->misc);
+	sbridge_mc_printk(mci, KERN_DEBUG, "HANDLING MCE MEMORY ERROR\n");
 
-	printk("PROCESSOR %u:%x TIME %llu SOCKET %u APIC %x\n",
-		mce->cpuvendor, mce->cpuid, mce->time,
-		mce->socketid, mce->apicid);
+	sbridge_mc_printk(mci, KERN_DEBUG, "CPU %d: Machine Check %s: %Lx "
+			  "Bank %d: %016Lx\n", mce->extcpu, type,
+			  mce->mcgstatus, mce->bank, mce->status);
+	sbridge_mc_printk(mci, KERN_DEBUG, "TSC %llx ", mce->tsc);
+	sbridge_mc_printk(mci, KERN_DEBUG, "ADDR %llx ", mce->addr);
+	sbridge_mc_printk(mci, KERN_DEBUG, "MISC %llx ", mce->misc);
+
+	sbridge_mc_printk(mci, KERN_DEBUG, "PROCESSOR %u:%x TIME %llu SOCKET "
+			  "%u APIC %x\n", mce->cpuvendor, mce->cpuid,
+			  mce->time, mce->socketid, mce->apicid);
 
 	/* Only handle if it is the right mc controller */
 	if (cpu_data(mce->cpu).phys_proc_id != pvt->sbridge_dev->mc)
@@ -2142,9 +2152,10 @@ static int __init sbridge_init(void)
 	opstate_init();
 
 	pci_rc = pci_register_driver(&sbridge_driver);
-
 	if (pci_rc >= 0) {
 		mce_register_decode_chain(&sbridge_mce_dec);
+		if (get_edac_report_status() == EDAC_REPORTING_DISABLED)
+			sbridge_printk(KERN_WARNING, "Loading driver, error reporting disabled.\n");
 		return 0;
 	}
 
@@ -2172,7 +2183,7 @@ module_param(edac_op_state, int, 0444);
 MODULE_PARM_DESC(edac_op_state, "EDAC Error Reporting state: 0=Poll,1=NMI");
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Mauro Carvalho Chehab <mchehab@redhat.com>");
+MODULE_AUTHOR("Mauro Carvalho Chehab");
 MODULE_AUTHOR("Red Hat Inc. (http://www.redhat.com)");
 MODULE_DESCRIPTION("MC Driver for Intel Sandy Bridge and Ivy Bridge memory controllers - "
 		   SBRIDGE_REVISION);

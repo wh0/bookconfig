@@ -28,6 +28,18 @@ typedef double elf_fpreg_t;
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 /*
+ * In order to be sure that we don't attempt to execute an O32 binary which
+ * requires 64 bit FP (FR=1) on a system which does not support it we refuse
+ * to execute any binary which has bits specified by the following macro set
+ * in its ELF header flags.
+ */
+#ifdef CONFIG_MIPS_O32_FP64_SUPPORT
+# define __MIPS_O32_FP64_MUST_BE_ZERO	0
+#else
+# define __MIPS_O32_FP64_MUST_BE_ZERO	EF_MIPS_FP64
+#endif
+
+/*
  * This is used to ensure we don't load something for the wrong architecture.
  */
 #define elf_check_arch(hdr)						\
@@ -44,6 +56,8 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 	if (((__h->e_flags & EF_MIPS_ABI) != 0) &&			\
 	    ((__h->e_flags & EF_MIPS_ABI) != EF_MIPS_ABI_O32))		\
 		__res = 0;						\
+	if (__h->e_flags & __MIPS_O32_FP64_MUST_BE_ZERO)		\
+		__res = 0;						\
 									\
 	__res;								\
 })
@@ -57,12 +71,6 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #define ELF_ET_DYN_BASE		(TASK32_SIZE / 3 * 2)
 
 #include <asm/processor.h>
-
-/*
- * When this file is selected, we are definitely running a 64bit kernel.
- * So using the right regs define in asm/reg.h
- */
-#define WANT_COMPAT_REG_H
 
 /* These MUST be defined before elf.h gets included */
 extern void elf32_core_copy_regs(elf_gregset_t grp, struct pt_regs *regs);
@@ -135,21 +143,21 @@ void elf32_core_copy_regs(elf_gregset_t grp, struct pt_regs *regs)
 {
 	int i;
 
-	for (i = 0; i < EF_R0; i++)
+	for (i = 0; i < MIPS32_EF_R0; i++)
 		grp[i] = 0;
-	grp[EF_R0] = 0;
+	grp[MIPS32_EF_R0] = 0;
 	for (i = 1; i <= 31; i++)
-		grp[EF_R0 + i] = (elf_greg_t) regs->regs[i];
-	grp[EF_R26] = 0;
-	grp[EF_R27] = 0;
-	grp[EF_LO] = (elf_greg_t) regs->lo;
-	grp[EF_HI] = (elf_greg_t) regs->hi;
-	grp[EF_CP0_EPC] = (elf_greg_t) regs->cp0_epc;
-	grp[EF_CP0_BADVADDR] = (elf_greg_t) regs->cp0_badvaddr;
-	grp[EF_CP0_STATUS] = (elf_greg_t) regs->cp0_status;
-	grp[EF_CP0_CAUSE] = (elf_greg_t) regs->cp0_cause;
-#ifdef EF_UNUSED0
-	grp[EF_UNUSED0] = 0;
+		grp[MIPS32_EF_R0 + i] = (elf_greg_t) regs->regs[i];
+	grp[MIPS32_EF_R26] = 0;
+	grp[MIPS32_EF_R27] = 0;
+	grp[MIPS32_EF_LO] = (elf_greg_t) regs->lo;
+	grp[MIPS32_EF_HI] = (elf_greg_t) regs->hi;
+	grp[MIPS32_EF_CP0_EPC] = (elf_greg_t) regs->cp0_epc;
+	grp[MIPS32_EF_CP0_BADVADDR] = (elf_greg_t) regs->cp0_badvaddr;
+	grp[MIPS32_EF_CP0_STATUS] = (elf_greg_t) regs->cp0_status;
+	grp[MIPS32_EF_CP0_CAUSE] = (elf_greg_t) regs->cp0_cause;
+#ifdef MIPS32_EF_UNUSED0
+	grp[MIPS32_EF_UNUSED0] = 0;
 #endif
 }
 

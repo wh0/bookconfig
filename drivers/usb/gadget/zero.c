@@ -64,10 +64,10 @@ static bool loopdefault = 0;
 module_param(loopdefault, bool, S_IRUGO|S_IWUSR);
 
 static struct usb_zero_options gzero_options = {
-	.isoc_interval = 4,
-	.isoc_maxpacket = 1024,
-	.bulk_buflen = 4096,
-	.qlen = 32,
+	.isoc_interval = GZERO_ISOC_INTERVAL,
+	.isoc_maxpacket = GZERO_ISOC_MAXPACKET,
+	.bulk_buflen = GZERO_BULK_BUFLEN,
+	.qlen = GZERO_QLEN,
 };
 
 /*-------------------------------------------------------------------------*/
@@ -300,7 +300,7 @@ static int __init zero_bind(struct usb_composite_dev *cdev)
 	ss_opts->isoc_interval = gzero_options.isoc_interval;
 	ss_opts->isoc_maxpacket = gzero_options.isoc_maxpacket;
 	ss_opts->isoc_mult = gzero_options.isoc_mult;
-	ss_opts->isoc_maxburst = gzero_options.isoc_maxpacket;
+	ss_opts->isoc_maxburst = gzero_options.isoc_maxburst;
 	ss_opts->bulk_buflen = gzero_options.bulk_buflen;
 
 	func_ss = usb_get_function(func_inst_ss);

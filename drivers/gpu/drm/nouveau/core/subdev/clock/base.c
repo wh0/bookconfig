@@ -182,9 +182,12 @@ nouveau_pstate_prog(struct nouveau_clock *clk, int pstatei)
 	clk->pstate = pstatei;
 
 	if (pfb->ram->calc) {
-		ret = pfb->ram->calc(pfb, pstate->base.domain[nv_clk_src_mem]);
-		if (ret == 0)
-			ret = pfb->ram->prog(pfb);
+		int khz = pstate->base.domain[nv_clk_src_mem];
+		do {
+			ret = pfb->ram->calc(pfb, khz);
+			if (ret == 0)
+				ret = pfb->ram->prog(pfb);
+		} while (ret > 0);
 		pfb->ram->tidy(pfb);
 	}
 
@@ -343,8 +346,8 @@ nouveau_clock_ustate_update(struct nouveau_clock *clk, int req)
 	struct nouveau_pstate *pstate;
 	int i = 0;
 
-	/* YKW repellant */
-	return -ENOSYS;
+	if (!clk->allow_reclock)
+		return -ENOSYS;
 
 	if (req != -1 && req != -2) {
 		list_for_each_entry(pstate, &clk->states, head) {
@@ -453,6 +456,7 @@ nouveau_clock_create_(struct nouveau_object *parent,
 		      struct nouveau_object *engine,
 		      struct nouveau_oclass *oclass,
 		      struct nouveau_clocks *clocks,
+		      bool allow_reclock,
 		      int length, void **object)
 {
 	struct nouveau_device *device = nv_device(parent);
@@ -474,6 +478,8 @@ nouveau_clock_create_(struct nouveau_object *parent,
 	do {
 		ret = nouveau_pstate_new(clk, idx++);
 	} while (ret == 0);
+
+	clk->allow_reclock = allow_reclock;
 
 	mode = nouveau_stropt(device->cfgopt, "NvClkMode", &arglen);
 	if (mode) {

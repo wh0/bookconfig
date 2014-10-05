@@ -52,6 +52,75 @@ u32 cik_gpu_check_soft_reset(struct radeon_device *rdev);
  */
 
 /**
+ * cik_sdma_get_rptr - get the current read pointer
+ *
+ * @rdev: radeon_device pointer
+ * @ring: radeon ring pointer
+ *
+ * Get the current rptr from the hardware (CIK+).
+ */
+uint32_t cik_sdma_get_rptr(struct radeon_device *rdev,
+			   struct radeon_ring *ring)
+{
+	u32 rptr, reg;
+
+	if (rdev->wb.enabled) {
+		rptr = rdev->wb.wb[ring->rptr_offs/4];
+	} else {
+		if (ring->idx == R600_RING_TYPE_DMA_INDEX)
+			reg = SDMA0_GFX_RB_RPTR + SDMA0_REGISTER_OFFSET;
+		else
+			reg = SDMA0_GFX_RB_RPTR + SDMA1_REGISTER_OFFSET;
+
+		rptr = RREG32(reg);
+	}
+
+	return (rptr & 0x3fffc) >> 2;
+}
+
+/**
+ * cik_sdma_get_wptr - get the current write pointer
+ *
+ * @rdev: radeon_device pointer
+ * @ring: radeon ring pointer
+ *
+ * Get the current wptr from the hardware (CIK+).
+ */
+uint32_t cik_sdma_get_wptr(struct radeon_device *rdev,
+			   struct radeon_ring *ring)
+{
+	u32 reg;
+
+	if (ring->idx == R600_RING_TYPE_DMA_INDEX)
+		reg = SDMA0_GFX_RB_WPTR + SDMA0_REGISTER_OFFSET;
+	else
+		reg = SDMA0_GFX_RB_WPTR + SDMA1_REGISTER_OFFSET;
+
+	return (RREG32(reg) & 0x3fffc) >> 2;
+}
+
+/**
+ * cik_sdma_set_wptr - commit the write pointer
+ *
+ * @rdev: radeon_device pointer
+ * @ring: radeon ring pointer
+ *
+ * Write the wptr back to the hardware (CIK+).
+ */
+void cik_sdma_set_wptr(struct radeon_device *rdev,
+		       struct radeon_ring *ring)
+{
+	u32 reg;
+
+	if (ring->idx == R600_RING_TYPE_DMA_INDEX)
+		reg = SDMA0_GFX_RB_WPTR + SDMA0_REGISTER_OFFSET;
+	else
+		reg = SDMA0_GFX_RB_WPTR + SDMA1_REGISTER_OFFSET;
+
+	WREG32(reg, (ring->wptr << 2) & 0x3fffc);
+}
+
+/**
  * cik_sdma_ring_ib_execute - Schedule an IB on the DMA engine
  *
  * @rdev: radeon_device pointer
@@ -72,7 +141,7 @@ void cik_sdma_ring_ib_execute(struct radeon_device *rdev,
 		next_rptr += 4;
 		radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_WRITE, SDMA_WRITE_SUB_OPCODE_LINEAR, 0));
 		radeon_ring_write(ring, ring->next_rptr_gpu_addr & 0xfffffffc);
-		radeon_ring_write(ring, upper_32_bits(ring->next_rptr_gpu_addr) & 0xffffffff);
+		radeon_ring_write(ring, upper_32_bits(ring->next_rptr_gpu_addr));
 		radeon_ring_write(ring, 1); /* number of DWs to follow */
 		radeon_ring_write(ring, next_rptr);
 	}
@@ -82,9 +151,38 @@ void cik_sdma_ring_ib_execute(struct radeon_device *rdev,
 		radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_NOP, 0, 0));
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_INDIRECT_BUFFER, 0, extra_bits));
 	radeon_ring_write(ring, ib->gpu_addr & 0xffffffe0); /* base must be 32 byte aligned */
-	radeon_ring_write(ring, upper_32_bits(ib->gpu_addr) & 0xffffffff);
+	radeon_ring_write(ring, upper_32_bits(ib->gpu_addr));
 	radeon_ring_write(ring, ib->length_dw);
 
+}
+
+/**
+ * cik_sdma_hdp_flush_ring_emit - emit an hdp flush on the DMA ring
+ *
+ * @rdev: radeon_device pointer
+ * @ridx: radeon ring index
+ *
+ * Emit an hdp flush packet on the requested DMA ring.
+ */
+static void cik_sdma_hdp_flush_ring_emit(struct radeon_device *rdev,
+					 int ridx)
+{
+	struct radeon_ring *ring = &rdev->ring[ridx];
+	u32 extra_bits = (SDMA_POLL_REG_MEM_EXTRA_OP(1) |
+			  SDMA_POLL_REG_MEM_EXTRA_FUNC(3)); /* == */
+	u32 ref_and_mask;
+
+	if (ridx == R600_RING_TYPE_DMA_INDEX)
+		ref_and_mask = SDMA0;
+	else
+		ref_and_mask = SDMA1;
+
+	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_POLL_REG_MEM, 0, extra_bits));
+	radeon_ring_write(ring, GPU_HDP_FLUSH_DONE);
+	radeon_ring_write(ring, GPU_HDP_FLUSH_REQ);
+	radeon_ring_write(ring, ref_and_mask); /* reference */
+	radeon_ring_write(ring, ref_and_mask); /* mask */
+	radeon_ring_write(ring, (0xfff << 16) | 10); /* retry count, poll interval */
 }
 
 /**
@@ -105,18 +203,13 @@ void cik_sdma_fence_ring_emit(struct radeon_device *rdev,
 
 	/* write the fence */
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_FENCE, 0, 0));
-	radeon_ring_write(ring, addr & 0xffffffff);
-	radeon_ring_write(ring, upper_32_bits(addr) & 0xffffffff);
+	radeon_ring_write(ring, lower_32_bits(addr));
+	radeon_ring_write(ring, upper_32_bits(addr));
 	radeon_ring_write(ring, fence->seq);
 	/* generate an interrupt */
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_TRAP, 0, 0));
 	/* flush HDP */
-	/* We should be using the new POLL_REG_MEM special op packet here
-	 * but it causes sDMA to hang sometimes
-	 */
-	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));
-	radeon_ring_write(ring, HDP_MEM_COHERENCY_FLUSH_CNTL >> 2);
-	radeon_ring_write(ring, 0);
+	cik_sdma_hdp_flush_ring_emit(rdev, fence->ring);
 }
 
 /**
@@ -140,7 +233,7 @@ bool cik_sdma_semaphore_ring_emit(struct radeon_device *rdev,
 
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SEMAPHORE, 0, extra_bits));
 	radeon_ring_write(ring, addr & 0xfffffff8);
-	radeon_ring_write(ring, upper_32_bits(addr) & 0xffffffff);
+	radeon_ring_write(ring, upper_32_bits(addr));
 
 	return true;
 }
@@ -157,7 +250,9 @@ static void cik_sdma_gfx_stop(struct radeon_device *rdev)
 	u32 rb_cntl, reg_offset;
 	int i;
 
-	radeon_ttm_set_active_vram_size(rdev, rdev->mc.visible_vram_size);
+	if ((rdev->asic->copy.copy_ring_index == R600_RING_TYPE_DMA_INDEX) ||
+	    (rdev->asic->copy.copy_ring_index == CAYMAN_RING_TYPE_DMA1_INDEX))
+		radeon_ttm_set_active_vram_size(rdev, rdev->mc.visible_vram_size);
 
 	for (i = 0; i < 2; i++) {
 		if (i == 0)
@@ -169,6 +264,8 @@ static void cik_sdma_gfx_stop(struct radeon_device *rdev)
 		WREG32(SDMA0_GFX_RB_CNTL + reg_offset, rb_cntl);
 		WREG32(SDMA0_GFX_IB_CNTL + reg_offset, 0);
 	}
+	rdev->ring[R600_RING_TYPE_DMA_INDEX].ready = false;
+	rdev->ring[CAYMAN_RING_TYPE_DMA1_INDEX].ready = false;
 }
 
 /**
@@ -195,6 +292,11 @@ void cik_sdma_enable(struct radeon_device *rdev, bool enable)
 {
 	u32 me_cntl, reg_offset;
 	int i;
+
+	if (enable == false) {
+		cik_sdma_gfx_stop(rdev);
+		cik_sdma_rlc_stop(rdev);
+	}
 
 	for (i = 0; i < 2; i++) {
 		if (i == 0)
@@ -267,8 +369,6 @@ static int cik_sdma_gfx_resume(struct radeon_device *rdev)
 		ring->wptr = 0;
 		WREG32(SDMA0_GFX_RB_WPTR + reg_offset, ring->wptr << 2);
 
-		ring->rptr = RREG32(SDMA0_GFX_RB_RPTR + reg_offset) >> 2;
-
 		/* enable DMA RB */
 		WREG32(SDMA0_GFX_RB_CNTL + reg_offset, rb_cntl | SDMA_RB_ENABLE);
 
@@ -288,7 +388,9 @@ static int cik_sdma_gfx_resume(struct radeon_device *rdev)
 		}
 	}
 
-	radeon_ttm_set_active_vram_size(rdev, rdev->mc.real_vram_size);
+	if ((rdev->asic->copy.copy_ring_index == R600_RING_TYPE_DMA_INDEX) ||
+	    (rdev->asic->copy.copy_ring_index == CAYMAN_RING_TYPE_DMA1_INDEX))
+		radeon_ttm_set_active_vram_size(rdev, rdev->mc.real_vram_size);
 
 	return 0;
 }
@@ -322,10 +424,6 @@ static int cik_sdma_load_microcode(struct radeon_device *rdev)
 
 	if (!rdev->sdma_fw)
 		return -EINVAL;
-
-	/* stop the gfx rings and rlc compute queues */
-	cik_sdma_gfx_stop(rdev);
-	cik_sdma_rlc_stop(rdev);
 
 	/* halt the MEs */
 	cik_sdma_enable(rdev, false);
@@ -395,9 +493,6 @@ int cik_sdma_resume(struct radeon_device *rdev)
  */
 void cik_sdma_fini(struct radeon_device *rdev)
 {
-	/* stop the gfx rings and rlc compute queues */
-	cik_sdma_gfx_stop(rdev);
-	cik_sdma_rlc_stop(rdev);
 	/* halt the MEs */
 	cik_sdma_enable(rdev, false);
 	radeon_ring_fini(rdev, &rdev->ring[R600_RING_TYPE_DMA_INDEX]);
@@ -456,10 +551,10 @@ int cik_copy_dma(struct radeon_device *rdev,
 		radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_COPY, SDMA_COPY_SUB_OPCODE_LINEAR, 0));
 		radeon_ring_write(ring, cur_size_in_bytes);
 		radeon_ring_write(ring, 0); /* src/dst endian swap */
-		radeon_ring_write(ring, src_offset & 0xffffffff);
-		radeon_ring_write(ring, upper_32_bits(src_offset) & 0xffffffff);
-		radeon_ring_write(ring, dst_offset & 0xffffffff);
-		radeon_ring_write(ring, upper_32_bits(dst_offset) & 0xffffffff);
+		radeon_ring_write(ring, lower_32_bits(src_offset));
+		radeon_ring_write(ring, upper_32_bits(src_offset));
+		radeon_ring_write(ring, lower_32_bits(dst_offset));
+		radeon_ring_write(ring, upper_32_bits(dst_offset));
 		src_offset += cur_size_in_bytes;
 		dst_offset += cur_size_in_bytes;
 	}
@@ -467,6 +562,7 @@ int cik_copy_dma(struct radeon_device *rdev,
 	r = radeon_fence_emit(rdev, fence, ring->idx);
 	if (r) {
 		radeon_ring_unlock_undo(rdev, ring);
+		radeon_semaphore_free(rdev, &sem, NULL);
 		return r;
 	}
 
@@ -502,14 +598,14 @@ int cik_sdma_ring_test(struct radeon_device *rdev,
 	tmp = 0xCAFEDEAD;
 	writel(tmp, ptr);
 
-	r = radeon_ring_lock(rdev, ring, 4);
+	r = radeon_ring_lock(rdev, ring, 5);
 	if (r) {
 		DRM_ERROR("radeon: dma failed to lock ring %d (%d).\n", ring->idx, r);
 		return r;
 	}
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_WRITE, SDMA_WRITE_SUB_OPCODE_LINEAR, 0));
 	radeon_ring_write(ring, rdev->vram_scratch.gpu_addr & 0xfffffffc);
-	radeon_ring_write(ring, upper_32_bits(rdev->vram_scratch.gpu_addr) & 0xffffffff);
+	radeon_ring_write(ring, upper_32_bits(rdev->vram_scratch.gpu_addr));
 	radeon_ring_write(ring, 1); /* number of DWs to follow */
 	radeon_ring_write(ring, 0xDEADBEEF);
 	radeon_ring_unlock_commit(rdev, ring);
@@ -564,7 +660,7 @@ int cik_sdma_ib_test(struct radeon_device *rdev, struct radeon_ring *ring)
 
 	ib.ptr[0] = SDMA_PACKET(SDMA_OPCODE_WRITE, SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
 	ib.ptr[1] = rdev->vram_scratch.gpu_addr & 0xfffffffc;
-	ib.ptr[2] = upper_32_bits(rdev->vram_scratch.gpu_addr) & 0xffffffff;
+	ib.ptr[2] = upper_32_bits(rdev->vram_scratch.gpu_addr);
 	ib.ptr[3] = 1;
 	ib.ptr[4] = 0xDEADBEEF;
 	ib.length_dw = 5;
@@ -616,11 +712,9 @@ bool cik_sdma_is_lockup(struct radeon_device *rdev, struct radeon_ring *ring)
 		mask = RADEON_RESET_DMA1;
 
 	if (!(reset_mask & mask)) {
-		radeon_ring_lockup_update(ring);
+		radeon_ring_lockup_update(rdev, ring);
 		return false;
 	}
-	/* force ring activities */
-	radeon_ring_force_activity(rdev, ring);
 	return radeon_ring_test_lockup(rdev, ring);
 }
 
@@ -648,7 +742,26 @@ void cik_sdma_vm_set_page(struct radeon_device *rdev,
 
 	trace_radeon_vm_set_page(pe, addr, count, incr, flags);
 
-	if (flags & R600_PTE_SYSTEM) {
+	if (flags == R600_PTE_GART) {
+		uint64_t src = rdev->gart.table_addr + (addr >> 12) * 8;
+		while (count) {
+			unsigned bytes = count * 8;
+			if (bytes > 0x1FFFF8)
+				bytes = 0x1FFFF8;
+
+			ib->ptr[ib->length_dw++] = SDMA_PACKET(SDMA_OPCODE_COPY, SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
+			ib->ptr[ib->length_dw++] = bytes;
+			ib->ptr[ib->length_dw++] = 0; /* src/dst endian swap */
+			ib->ptr[ib->length_dw++] = lower_32_bits(src);
+			ib->ptr[ib->length_dw++] = upper_32_bits(src);
+			ib->ptr[ib->length_dw++] = lower_32_bits(pe);
+			ib->ptr[ib->length_dw++] = upper_32_bits(pe);
+
+			pe += bytes;
+			src += bytes;
+			count -= bytes / 8;
+		}
+	} else if (flags & R600_PTE_SYSTEM) {
 		while (count) {
 			ndw = count * 2;
 			if (ndw > 0xFFFFE)
@@ -747,12 +860,7 @@ void cik_dma_vm_flush(struct radeon_device *rdev, int ridx, struct radeon_vm *vm
 	radeon_ring_write(ring, VMID(0));
 
 	/* flush HDP */
-	/* We should be using the new POLL_REG_MEM special op packet here
-	 * but it causes sDMA to hang sometimes
-	 */
-	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));
-	radeon_ring_write(ring, HDP_MEM_COHERENCY_FLUSH_CNTL >> 2);
-	radeon_ring_write(ring, 0);
+	cik_sdma_hdp_flush_ring_emit(rdev, ridx);
 
 	/* flush TLB */
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));

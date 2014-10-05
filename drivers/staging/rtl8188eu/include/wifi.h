@@ -694,7 +694,7 @@ struct WMM_para_element {
 
 struct ADDBA_request {
 	unsigned char	dialog_token;
-	unsigned short	BA_para_set;
+	__le16		BA_para_set;
 	unsigned short	BA_timeout_value;
 	unsigned short	BA_starting_seqctrl;
 } __packed;
@@ -1080,7 +1080,7 @@ enum P2P_PROTO_WK_ID {
 	P2P_PRE_TX_PROVDISC_PROCESS_WK = 2,
 	P2P_PRE_TX_NEGOREQ_PROCESS_WK = 3,
 	P2P_PRE_TX_INVITEREQ_PROCESS_WK = 4,
-	P2P_AP_P2P_CH_SWITCH_PROCESS_WK =5,
+	P2P_AP_P2P_CH_SWITCH_PROCESS_WK = 5,
 	P2P_RO_CH_WK = 6,
 };
 

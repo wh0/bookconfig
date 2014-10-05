@@ -280,8 +280,6 @@ static int pci1723_auto_attach(struct comedi_device *dev,
 
 	pci1723_reset(dev);
 
-	dev_info(dev->class_dev, "%s attached\n", dev->board_name);
-
 	return 0;
 }
 
@@ -306,7 +304,7 @@ static int adv_pci1723_pci_probe(struct pci_dev *dev,
 				      id->driver_data);
 }
 
-static DEFINE_PCI_DEVICE_TABLE(adv_pci1723_pci_table) = {
+static const struct pci_device_id adv_pci1723_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1723) },
 	{ 0 }
 };

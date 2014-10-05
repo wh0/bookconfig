@@ -227,7 +227,7 @@ inline void softmac_mgmt_xmit(struct sk_buff *skb, struct rtllib_device *ieee)
 	/* called with 2nd param 0, no mgmt lock required */
 	rtllib_sta_wakeup(ieee, 0);
 
-	if (header->frame_ctl == RTLLIB_STYPE_BEACON)
+	if (le16_to_cpu(header->frame_ctl) == RTLLIB_STYPE_BEACON)
 		tcb_desc->queue_index = BEACON_QUEUE;
 	else
 		tcb_desc->queue_index = MGNT_QUEUE;
@@ -295,7 +295,7 @@ inline void softmac_ps_mgmt_xmit(struct sk_buff *skb,
 	u16 fc, type, stype;
 	struct cb_desc *tcb_desc = (struct cb_desc *)(skb->cb + 8);
 
-	fc = header->frame_ctl;
+	fc = le16_to_cpu(header->frame_ctl);
 	type = WLAN_FC_GET_TYPE(fc);
 	stype = WLAN_FC_GET_STYPE(fc);
 
@@ -543,7 +543,7 @@ void rtllib_softmac_scan_syncro(struct rtllib_device *ieee, u8 is_mesh)
 				goto out; /* scan completed */
 		} while (!ieee->active_channel_map[ch]);
 
-		/* this fuction can be called in two situations
+		/* this function can be called in two situations
 		 * 1- We have switched to ad-hoc mode and we are
 		 *    performing a complete syncro scan before conclude
 		 *    there are no interesting cell and to create a
@@ -807,18 +807,18 @@ inline struct sk_buff *rtllib_authentication_req(struct rtllib_network *beacon,
 	auth = (struct rtllib_authentication *)
 		skb_put(skb, sizeof(struct rtllib_authentication));
 
-	auth->header.frame_ctl = RTLLIB_STYPE_AUTH;
+	auth->header.frame_ctl = cpu_to_le16(RTLLIB_STYPE_AUTH);
 	if (challengelen)
-		auth->header.frame_ctl |= RTLLIB_FCTL_WEP;
+		auth->header.frame_ctl |= cpu_to_le16(RTLLIB_FCTL_WEP);
 
-	auth->header.duration_id = 0x013a;
+	auth->header.duration_id = cpu_to_le16(0x013a);
 	memcpy(auth->header.addr1, beacon->bssid, ETH_ALEN);
 	memcpy(auth->header.addr2, ieee->dev->dev_addr, ETH_ALEN);
 	memcpy(auth->header.addr3, beacon->bssid, ETH_ALEN);
 	if (ieee->auth_mode == 0)
 		auth->algorithm = WLAN_AUTH_OPEN;
 	else if (ieee->auth_mode == 1)
-		auth->algorithm = WLAN_AUTH_SHARED_KEY;
+		auth->algorithm = cpu_to_le16(WLAN_AUTH_SHARED_KEY);
 	else if (ieee->auth_mode == 2)
 		auth->algorithm = WLAN_AUTH_OPEN;
 	auth->transaction = cpu_to_le16(ieee->associate_seq);
@@ -921,8 +921,8 @@ static struct sk_buff *rtllib_probe_resp(struct rtllib_device *ieee, u8 *dest)
 
 	if (ieee->short_slot && (ieee->current_network.capability &
 	    WLAN_CAPABILITY_SHORT_SLOT_TIME))
-		cpu_to_le16((beacon_buf->capability |=
-				 WLAN_CAPABILITY_SHORT_SLOT_TIME));
+		beacon_buf->capability |=
+			cpu_to_le16(WLAN_CAPABILITY_SHORT_SLOT_TIME);
 
 	crypt = ieee->crypt_info.crypt[ieee->crypt_info.tx_keyidx];
 	if (encrypt)
@@ -952,7 +952,7 @@ static struct sk_buff *rtllib_probe_resp(struct rtllib_device *ieee, u8 *dest)
 		u16 val16;
 		*(tag++) = MFIE_TYPE_IBSS_SET;
 		*(tag++) = 2;
-		 val16 = cpu_to_le16(ieee->current_network.atim_window);
+		val16 = ieee->current_network.atim_window;
 		memcpy((u8 *)tag, (u8 *)&val16, 2);
 		tag += 2;
 	}
@@ -1260,7 +1260,7 @@ inline struct sk_buff *rtllib_association_req(struct rtllib_network *beacon,
 
 
 	hdr->header.frame_ctl = RTLLIB_STYPE_ASSOC_REQ;
-	hdr->header.duration_id = 37;
+	hdr->header.duration_id = cpu_to_le16(37);
 	memcpy(hdr->header.addr1, beacon->bssid, ETH_ALEN);
 	memcpy(hdr->header.addr2, ieee->dev->dev_addr, ETH_ALEN);
 	memcpy(hdr->header.addr3, beacon->bssid, ETH_ALEN);
@@ -1279,7 +1279,7 @@ inline struct sk_buff *rtllib_association_req(struct rtllib_network *beacon,
 		hdr->capability |= cpu_to_le16(WLAN_CAPABILITY_SHORT_SLOT_TIME);
 
 
-	hdr->listen_interval = beacon->listen_interval;
+	hdr->listen_interval = cpu_to_le16(beacon->listen_interval);
 
 	hdr->info_element[0].id = MFIE_TYPE_SSID;
 
@@ -1451,7 +1451,7 @@ static void rtllib_associate_abort_cb(unsigned long dev)
 	rtllib_associate_abort((struct rtllib_device *) dev);
 }
 
-static void rtllib_associate_step1(struct rtllib_device *ieee, u8 * daddr)
+static void rtllib_associate_step1(struct rtllib_device *ieee, u8 *daddr)
 {
 	struct rtllib_network *beacon = &ieee->current_network;
 	struct sk_buff *skb;
@@ -1785,7 +1785,7 @@ void rtllib_softmac_check_all_nets(struct rtllib_device *ieee)
 	spin_unlock_irqrestore(&ieee->lock, flags);
 }
 
-static inline u16 auth_parse(struct sk_buff *skb, u8** challenge, int *chlen)
+static inline u16 auth_parse(struct sk_buff *skb, u8 **challenge, int *chlen)
 {
 	struct rtllib_authentication *a;
 	u8 *t;
@@ -3239,7 +3239,6 @@ static int rtllib_wpa_set_auth_algs(struct rtllib_device *ieee, int value)
 	struct rtllib_security sec = {
 		.flags = SEC_AUTH_MODE,
 	};
-	int ret = 0;
 
 	if (value & AUTH_ALG_SHARED_KEY) {
 		sec.auth_mode = WLAN_AUTH_SHARED_KEY;
@@ -3259,7 +3258,7 @@ static int rtllib_wpa_set_auth_algs(struct rtllib_device *ieee, int value)
 	if (ieee->set_security)
 		ieee->set_security(ieee->dev, &sec);
 
-	return ret;
+	return 0;
 }
 
 static int rtllib_wpa_set_param(struct rtllib_device *ieee, u8 name, u32 value)
@@ -3633,7 +3632,7 @@ out:
 }
 EXPORT_SYMBOL(rtllib_wpa_supplicant_ioctl);
 
-void rtllib_MgntDisconnectIBSS(struct rtllib_device *rtllib)
+static void rtllib_MgntDisconnectIBSS(struct rtllib_device *rtllib)
 {
 	u8	OpMode;
 	u8	i;
@@ -3658,7 +3657,7 @@ void rtllib_MgntDisconnectIBSS(struct rtllib_device *rtllib)
 
 }
 
-void rtllib_MlmeDisassociateRequest(struct rtllib_device *rtllib, u8 *asSta,
+static void rtllib_MlmeDisassociateRequest(struct rtllib_device *rtllib, u8 *asSta,
 				    u8 asRsn)
 {
 	u8 i;
@@ -3684,7 +3683,7 @@ void rtllib_MlmeDisassociateRequest(struct rtllib_device *rtllib, u8 *asSta,
 
 }
 
-void
+static void
 rtllib_MgntDisconnectAP(
 	struct rtllib_device *rtllib,
 	u8 asRsn

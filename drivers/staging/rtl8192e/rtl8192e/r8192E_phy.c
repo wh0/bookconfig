@@ -729,7 +729,6 @@ u8 rtl8192_phy_ConfigRFWithHeaderFile(struct net_device *dev,
 {
 
 	int i;
-	u8 ret = 0;
 
 	switch (eRFPath) {
 	case RF90_PATH_A:
@@ -787,7 +786,7 @@ u8 rtl8192_phy_ConfigRFWithHeaderFile(struct net_device *dev,
 		break;
 	}
 
-	return ret;
+	return 0;
 
 }
 static void rtl8192_SetTxPowerLevel(struct net_device *dev, u8 channel)
@@ -1179,7 +1178,7 @@ void rtl8192_SetBWModeWorkItem(struct net_device *dev)
 
 	RT_TRACE(COMP_SWBW, "==>rtl8192_SetBWModeWorkItem()  Switch to %s "
 		 "bandwidth\n", priv->CurrentChannelBW == HT_CHANNEL_WIDTH_20 ?
-		 "20MHz" : "40MHz")
+		 "20MHz" : "40MHz");
 
 
 	if (priv->rf_chip == RF_PSEUDO_11N) {
@@ -1555,7 +1554,7 @@ static bool SetRFPowerState8190(struct net_device *dev,
 
 		default:
 			bResult = false;
-			RT_TRACE(COMP_ERR, "SetRFPowerState8190(): unknow state"
+			RT_TRACE(COMP_ERR, "SetRFPowerState8190(): unknown state"
 				 " to set: 0x%X!!!\n", eRFPowerState);
 			break;
 		}

@@ -282,22 +282,29 @@ xfs_readsb(
 	struct xfs_sb	*sbp = &mp->m_sb;
 	int		error;
 	int		loud = !(flags & XFS_MFSI_QUIET);
+	const struct xfs_buf_ops *buf_ops;
 
 	ASSERT(mp->m_sb_bp == NULL);
 	ASSERT(mp->m_ddev_targp != NULL);
+
+	/*
+	 * For the initial read, we must guess at the sector
+	 * size based on the block device.  It's enough to
+	 * get the sb_sectsize out of the superblock and
+	 * then reread with the proper length.
+	 * We don't verify it yet, because it may not be complete.
+	 */
+	sector_size = xfs_getsize_buftarg(mp->m_ddev_targp);
+	buf_ops = NULL;
 
 	/*
 	 * Allocate a (locked) buffer to hold the superblock.
 	 * This will be kept around at all times to optimize
 	 * access to the superblock.
 	 */
-	sector_size = xfs_getsize_buftarg(mp->m_ddev_targp);
-
 reread:
 	bp = xfs_buf_read_uncached(mp->m_ddev_targp, XFS_SB_DADDR,
-				   BTOBB(sector_size), 0,
-				   loud ? &xfs_sb_buf_ops
-				        : &xfs_sb_quiet_buf_ops);
+				   BTOBB(sector_size), 0, buf_ops);
 	if (!bp) {
 		if (loud)
 			xfs_warn(mp, "SB buffer read failed");
@@ -307,14 +314,28 @@ reread:
 		error = bp->b_error;
 		if (loud)
 			xfs_warn(mp, "SB validate failed with error %d.", error);
+		/* bad CRC means corrupted metadata */
+		if (error == EFSBADCRC)
+			error = EFSCORRUPTED;
 		goto release_buf;
 	}
 
 	/*
 	 * Initialize the mount structure from the superblock.
 	 */
-	xfs_sb_from_disk(&mp->m_sb, XFS_BUF_TO_SBP(bp));
-	xfs_sb_quota_from_disk(&mp->m_sb);
+	xfs_sb_from_disk(sbp, XFS_BUF_TO_SBP(bp));
+	xfs_sb_quota_from_disk(sbp);
+
+	/*
+	 * If we haven't validated the superblock, do so now before we try
+	 * to check the sector size and reread the superblock appropriately.
+	 */
+	if (sbp->sb_magicnum != XFS_SB_MAGIC) {
+		if (loud)
+			xfs_warn(mp, "Invalid superblock magic number");
+		error = EINVAL;
+		goto release_buf;
+	}
 
 	/*
 	 * We must be able to do sector-sized and sector-aligned IO.
@@ -327,13 +348,14 @@ reread:
 		goto release_buf;
 	}
 
-	/*
-	 * If device sector size is smaller than the superblock size,
-	 * re-read the superblock so the buffer is correctly sized.
-	 */
-	if (sector_size < sbp->sb_sectsize) {
+	if (buf_ops == NULL) {
+		/*
+		 * Re-read the superblock so the buffer is correctly sized,
+		 * and properly verified.
+		 */
 		xfs_buf_relse(bp);
 		sector_size = sbp->sb_sectsize;
+		buf_ops = loud ? &xfs_sb_buf_ops : &xfs_sb_quiet_buf_ops;
 		goto reread;
 	}
 
@@ -686,6 +708,12 @@ xfs_mountfs(
 			mp->m_update_flags |= XFS_SB_VERSIONNUM;
 	}
 
+	/* always use v2 inodes by default now */
+	if (!(mp->m_sb.sb_versionnum & XFS_SB_VERSION_NLINKBIT)) {
+		mp->m_sb.sb_versionnum |= XFS_SB_VERSION_NLINKBIT;
+		mp->m_update_flags |= XFS_SB_VERSIONNUM;
+	}
+
 	/*
 	 * Check if sb_agblocks is aligned at stripe boundary
 	 * If sb_agblocks is NOT aligned turn off m_dalign since
@@ -732,8 +760,6 @@ xfs_mountfs(
 		new_size *= mp->m_sb.sb_inodesize / XFS_DINODE_MIN_SIZE;
 		if (mp->m_sb.sb_inoalignmt >= XFS_B_TO_FSBT(mp, new_size))
 			mp->m_inode_cluster_size = new_size;
-		xfs_info(mp, "Using inode cluster size of %d bytes",
-			 mp->m_inode_cluster_size);
 	}
 
 	/*
@@ -765,12 +791,11 @@ xfs_mountfs(
 
 	mp->m_dmevmask = 0;	/* not persistent; set after each mount */
 
-	xfs_dir_mount(mp);
-
-	/*
-	 * Initialize the attribute manager's entries.
-	 */
-	mp->m_attr_magicpct = (mp->m_sb.sb_blocksize * 37) / 100;
+	error = xfs_da_mount(mp);
+	if (error) {
+		xfs_warn(mp, "Failed dir/attr init: %d", error);
+		goto out_remove_uuid;
+	}
 
 	/*
 	 * Initialize the precomputed transaction reservations values.
@@ -785,7 +810,7 @@ xfs_mountfs(
 	error = xfs_initialize_perag(mp, sbp->sb_agcount, &mp->m_maxagi);
 	if (error) {
 		xfs_warn(mp, "Failed per-ag init: %d", error);
-		goto out_remove_uuid;
+		goto out_free_dir;
 	}
 
 	if (!sbp->sb_logblocks) {
@@ -960,6 +985,8 @@ xfs_mountfs(
 	xfs_wait_buftarg(mp->m_ddev_targp);
  out_free_perag:
 	xfs_free_perag(mp);
+ out_free_dir:
+	xfs_da_unmount(mp);
  out_remove_uuid:
 	xfs_uuid_unmount(mp);
  out:
@@ -1037,6 +1064,7 @@ xfs_unmountfs(
 				"Freespace may not be correct on next mount.");
 
 	xfs_log_unmount(mp);
+	xfs_da_unmount(mp);
 	xfs_uuid_unmount(mp);
 
 #if defined(DEBUG)

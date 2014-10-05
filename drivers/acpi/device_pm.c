@@ -256,6 +256,8 @@ int acpi_bus_init_power(struct acpi_device *device)
 		return -EINVAL;
 
 	device->power.state = ACPI_STATE_UNKNOWN;
+	if (!acpi_device_is_present(device))
+		return 0;
 
 	result = acpi_device_get_power(device, &state);
 	if (result)
@@ -302,15 +304,18 @@ int acpi_device_fix_up_power(struct acpi_device *device)
 	return ret;
 }
 
-int acpi_bus_update_power(acpi_handle handle, int *state_p)
+int acpi_device_update_power(struct acpi_device *device, int *state_p)
 {
-	struct acpi_device *device;
 	int state;
 	int result;
 
-	result = acpi_bus_get_device(handle, &device);
-	if (result)
+	if (device->power.state == ACPI_STATE_UNKNOWN) {
+		result = acpi_bus_init_power(device);
+		if (!result && state_p)
+			*state_p = device->power.state;
+
 		return result;
+	}
 
 	result = acpi_device_get_power(device, &state);
 	if (result)
@@ -337,6 +342,15 @@ int acpi_bus_update_power(acpi_handle handle, int *state_p)
 		*state_p = state;
 
 	return 0;
+}
+
+int acpi_bus_update_power(acpi_handle handle, int *state_p)
+{
+	struct acpi_device *device;
+	int result;
+
+	result = acpi_bus_get_device(handle, &device);
+	return result ? result : acpi_device_update_power(device, state_p);
 }
 EXPORT_SYMBOL_GPL(acpi_bus_update_power);
 
@@ -713,18 +727,6 @@ int acpi_pm_device_sleep_wake(struct device *dev, bool enable)
 #endif /* CONFIG_PM_SLEEP */
 
 /**
- * acpi_dev_pm_get_node - Get ACPI device node for the given physical device.
- * @dev: Device to get the ACPI node for.
- */
-struct acpi_device *acpi_dev_pm_get_node(struct device *dev)
-{
-	acpi_handle handle = ACPI_HANDLE(dev);
-	struct acpi_device *adev;
-
-	return handle && !acpi_bus_get_device(handle, &adev) ? adev : NULL;
-}
-
-/**
  * acpi_dev_pm_low_power - Put ACPI device into a low-power state.
  * @dev: Device to put into a low-power state.
  * @adev: ACPI device node corresponding to @dev.
@@ -764,7 +766,7 @@ static int acpi_dev_pm_full_power(struct acpi_device *adev)
  */
 int acpi_dev_runtime_suspend(struct device *dev)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 	bool remote_wakeup;
 	int error;
 
@@ -795,7 +797,7 @@ EXPORT_SYMBOL_GPL(acpi_dev_runtime_suspend);
  */
 int acpi_dev_runtime_resume(struct device *dev)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 	int error;
 
 	if (!adev)
@@ -848,7 +850,7 @@ EXPORT_SYMBOL_GPL(acpi_subsys_runtime_resume);
  */
 int acpi_dev_suspend_late(struct device *dev)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 	u32 target_state;
 	bool wakeup;
 	int error;
@@ -880,7 +882,7 @@ EXPORT_SYMBOL_GPL(acpi_dev_suspend_late);
  */
 int acpi_dev_resume_early(struct device *dev)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 	int error;
 
 	if (!adev)
@@ -898,14 +900,59 @@ EXPORT_SYMBOL_GPL(acpi_dev_resume_early);
  */
 int acpi_subsys_prepare(struct device *dev)
 {
-	/*
-	 * Follow PCI and resume devices suspended at run time before running
-	 * their system suspend callbacks.
-	 */
-	pm_runtime_resume(dev);
-	return pm_generic_prepare(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
+	u32 sys_target;
+	int ret, state;
+
+	ret = pm_generic_prepare(dev);
+	if (ret < 0)
+		return ret;
+
+	if (!adev || !pm_runtime_suspended(dev)
+	    || device_may_wakeup(dev) != !!adev->wakeup.prepare_count)
+		return 0;
+
+	sys_target = acpi_target_system_state();
+	if (sys_target == ACPI_STATE_S0)
+		return 1;
+
+	if (adev->power.flags.dsw_present)
+		return 0;
+
+	ret = acpi_dev_pm_get_state(dev, adev, sys_target, NULL, &state);
+	return !ret && state == adev->power.state;
 }
 EXPORT_SYMBOL_GPL(acpi_subsys_prepare);
+
+/**
+ * acpi_subsys_complete - Finalize device's resume during system resume.
+ * @dev: Device to handle.
+ */
+void acpi_subsys_complete(struct device *dev)
+{
+	/*
+	 * If the device had been runtime-suspended before the system went into
+	 * the sleep state it is going out of and it has never been resumed till
+	 * now, resume it in case the firmware powered it up.
+	 */
+	if (dev->power.direct_complete)
+		pm_request_resume(dev);
+}
+EXPORT_SYMBOL_GPL(acpi_subsys_complete);
+
+/**
+ * acpi_subsys_suspend - Run the device driver's suspend callback.
+ * @dev: Device to handle.
+ *
+ * Follow PCI and resume devices suspended at run time before running their
+ * system suspend callbacks.
+ */
+int acpi_subsys_suspend(struct device *dev)
+{
+	pm_runtime_resume(dev);
+	return pm_generic_suspend(dev);
+}
+EXPORT_SYMBOL_GPL(acpi_subsys_suspend);
 
 /**
  * acpi_subsys_suspend_late - Suspend device using ACPI.
@@ -935,6 +982,24 @@ int acpi_subsys_resume_early(struct device *dev)
 	return ret ? ret : pm_generic_resume_early(dev);
 }
 EXPORT_SYMBOL_GPL(acpi_subsys_resume_early);
+
+/**
+ * acpi_subsys_freeze - Run the device driver's freeze callback.
+ * @dev: Device to handle.
+ */
+int acpi_subsys_freeze(struct device *dev)
+{
+	/*
+	 * This used to be done in acpi_subsys_prepare() for all devices and
+	 * some drivers may depend on it, so do it here.  Ideally, however,
+	 * runtime-suspended devices should not be touched during freeze/thaw
+	 * transitions.
+	 */
+	pm_runtime_resume(dev);
+	return pm_generic_freeze(dev);
+}
+EXPORT_SYMBOL_GPL(acpi_subsys_freeze);
+
 #endif /* CONFIG_PM_SLEEP */
 
 static struct dev_pm_domain acpi_general_pm_domain = {
@@ -945,8 +1010,12 @@ static struct dev_pm_domain acpi_general_pm_domain = {
 #endif
 #ifdef CONFIG_PM_SLEEP
 		.prepare = acpi_subsys_prepare,
+		.complete = acpi_subsys_complete,
+		.suspend = acpi_subsys_suspend,
 		.suspend_late = acpi_subsys_suspend_late,
 		.resume_early = acpi_subsys_resume_early,
+		.freeze = acpi_subsys_freeze,
+		.poweroff = acpi_subsys_suspend,
 		.poweroff_late = acpi_subsys_suspend_late,
 		.restore_early = acpi_subsys_resume_early,
 #endif
@@ -971,7 +1040,7 @@ static struct dev_pm_domain acpi_general_pm_domain = {
  */
 int acpi_dev_pm_attach(struct device *dev, bool power_on)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 
 	if (!adev)
 		return -ENODEV;
@@ -1003,7 +1072,7 @@ EXPORT_SYMBOL_GPL(acpi_dev_pm_attach);
  */
 void acpi_dev_pm_detach(struct device *dev, bool power_off)
 {
-	struct acpi_device *adev = acpi_dev_pm_get_node(dev);
+	struct acpi_device *adev = ACPI_COMPANION(dev);
 
 	if (adev && dev->pm_domain == &acpi_general_pm_domain) {
 		dev->pm_domain = NULL;

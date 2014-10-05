@@ -46,33 +46,11 @@ static void print_buf_info(int slot, char *name)
 }
 #endif
 
-#define DAVINCI_PCM_FMTBITS	(\
-				SNDRV_PCM_FMTBIT_S8	|\
-				SNDRV_PCM_FMTBIT_U8	|\
-				SNDRV_PCM_FMTBIT_S16_LE	|\
-				SNDRV_PCM_FMTBIT_S16_BE	|\
-				SNDRV_PCM_FMTBIT_U16_LE	|\
-				SNDRV_PCM_FMTBIT_U16_BE	|\
-				SNDRV_PCM_FMTBIT_S24_LE	|\
-				SNDRV_PCM_FMTBIT_S24_BE	|\
-				SNDRV_PCM_FMTBIT_U24_LE	|\
-				SNDRV_PCM_FMTBIT_U24_BE	|\
-				SNDRV_PCM_FMTBIT_S32_LE	|\
-				SNDRV_PCM_FMTBIT_S32_BE	|\
-				SNDRV_PCM_FMTBIT_U32_LE	|\
-				SNDRV_PCM_FMTBIT_U32_BE)
-
 static struct snd_pcm_hardware pcm_hardware_playback = {
 	.info = (SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_BLOCK_TRANSFER |
 		 SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID |
 		 SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME|
 		 SNDRV_PCM_INFO_BATCH),
-	.formats = DAVINCI_PCM_FMTBITS,
-	.rates = SNDRV_PCM_RATE_8000_192000 | SNDRV_PCM_RATE_KNOT,
-	.rate_min = 8000,
-	.rate_max = 192000,
-	.channels_min = 2,
-	.channels_max = 384,
 	.buffer_bytes_max = 128 * 1024,
 	.period_bytes_min = 32,
 	.period_bytes_max = 8 * 1024,
@@ -86,12 +64,6 @@ static struct snd_pcm_hardware pcm_hardware_capture = {
 		 SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID |
 		 SNDRV_PCM_INFO_PAUSE |
 		 SNDRV_PCM_INFO_BATCH),
-	.formats = DAVINCI_PCM_FMTBITS,
-	.rates = SNDRV_PCM_RATE_8000_192000 | SNDRV_PCM_RATE_KNOT,
-	.rate_min = 8000,
-	.rate_max = 192000,
-	.channels_min = 2,
-	.channels_max = 384,
 	.buffer_bytes_max = 128 * 1024,
 	.period_bytes_min = 32,
 	.period_bytes_max = 8 * 1024,
@@ -880,15 +852,9 @@ static struct snd_soc_platform_driver davinci_soc_platform = {
 
 int davinci_soc_platform_register(struct device *dev)
 {
-	return snd_soc_register_platform(dev, &davinci_soc_platform);
+	return devm_snd_soc_register_platform(dev, &davinci_soc_platform);
 }
 EXPORT_SYMBOL_GPL(davinci_soc_platform_register);
-
-void davinci_soc_platform_unregister(struct device *dev)
-{
-	snd_soc_unregister_platform(dev);
-}
-EXPORT_SYMBOL_GPL(davinci_soc_platform_unregister);
 
 MODULE_AUTHOR("Vladimir Barinov");
 MODULE_DESCRIPTION("TI DAVINCI PCM DMA module");

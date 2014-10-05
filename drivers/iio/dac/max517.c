@@ -19,7 +19,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/jiffies.h>
 #include <linux/i2c.h>
@@ -146,7 +145,6 @@ static const struct iio_info max517_info = {
 	.channel = (chan),				\
 	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |	\
 	BIT(IIO_CHAN_INFO_SCALE),			\
-	.scan_type = IIO_ST('u', 8, 8, 0),		\
 }
 
 static const struct iio_chan_spec max517_channels[] = {

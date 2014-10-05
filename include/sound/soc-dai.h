@@ -123,6 +123,8 @@ int snd_soc_dai_set_tristate(struct snd_soc_dai *dai, int tristate);
 int snd_soc_dai_digital_mute(struct snd_soc_dai *dai, int mute,
 			     int direction);
 
+int snd_soc_dai_is_dummy(struct snd_soc_dai *dai);
+
 struct snd_soc_dai_ops {
 	/*
 	 * DAI clocking configuration, all optional.
@@ -140,6 +142,8 @@ struct snd_soc_dai_ops {
 	 * Called by soc_card drivers, normally in their hw_params.
 	 */
 	int (*set_fmt)(struct snd_soc_dai *dai, unsigned int fmt);
+	int (*xlate_tdm_slot_mask)(unsigned int slots,
+		unsigned int *tx_mask, unsigned int *rx_mask);
 	int (*set_tdm_slot)(struct snd_soc_dai *dai,
 		unsigned int tx_mask, unsigned int rx_mask,
 		int slots, int slot_width);
@@ -220,6 +224,8 @@ struct snd_soc_dai_driver {
 	struct snd_soc_pcm_stream capture;
 	struct snd_soc_pcm_stream playback;
 	unsigned int symmetric_rates:1;
+	unsigned int symmetric_channels:1;
+	unsigned int symmetric_samplebits:1;
 
 	/* probe ordering - for components with runtime dependencies */
 	int probe_order;
@@ -244,7 +250,8 @@ struct snd_soc_dai {
 	unsigned int capture_active:1;		/* stream is in use */
 	unsigned int playback_active:1;		/* stream is in use */
 	unsigned int symmetric_rates:1;
-	struct snd_pcm_runtime *runtime;
+	unsigned int symmetric_channels:1;
+	unsigned int symmetric_samplebits:1;
 	unsigned int active;
 	unsigned char probed:1;
 
@@ -258,15 +265,17 @@ struct snd_soc_dai {
 
 	/* Symmetry data - only valid if symmetry is being enforced */
 	unsigned int rate;
+	unsigned int channels;
+	unsigned int sample_bits;
 
 	/* parent platform/codec */
 	struct snd_soc_platform *platform;
 	struct snd_soc_codec *codec;
+	struct snd_soc_component *component;
 
 	struct snd_soc_card *card;
 
 	struct list_head list;
-	struct list_head card_list;
 };
 
 static inline void *snd_soc_dai_get_dma_data(const struct snd_soc_dai *dai,
