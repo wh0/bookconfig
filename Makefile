@@ -22,7 +22,7 @@ zImage_w_dtb: kernel/.config
 	cat kernel/arch/arm/boot/zImage kernel/arch/arm/boot/dts/wm8505-ref.dtb > $@
 
 kernel/.config: seed
-	test -e kernel || git clone -b kernel --depth 1 "$(shell git config remote.origin.url)" $@
+	test -e kernel || git clone -b kernel "$(shell git config remote.origin.url)" $@
 	cp $< $@
 	$(MAKE) -C kernel ARCH=arm olddefconfig
 
