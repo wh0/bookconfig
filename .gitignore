@@ -1,9 +1,7 @@
 /kernel
-/scriptcmd
-/expanded
 /zImage_w_dtb
 /uzImage.bin
+/scriptcmd
 /*.deb
 /debs.tar
-/rootfs
 /rootfs.tar.gz

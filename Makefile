@@ -11,38 +11,34 @@ DEBOOTSTRAP_OPTS = \
 	--variant minbase
 SUITE = testing
 
-all: uzImage.bin scriptcmd debs.tar
+all: uzImage.bin scriptcmd debs.tar eatmydata.deb
 	fakeroot $(MAKE) rootfs.tar.gz
 
 uzImage.bin: zImage_w_dtb
 	mkimage -A arm -O linux -T kernel -C none -a 0x8000 -e 0x8000 -n linux-vtwm -d $< $@
 
-zImage_w_dtb: expanded kernel
+zImage_w_dtb: kernel/.config
 	$(MAKE) -C kernel ARCH=arm $(KERNEL_OPTS) zImage dtbs
 	cat kernel/arch/arm/boot/zImage kernel/arch/arm/boot/dts/wm8505-ref.dtb > $@
 
-expanded: seed kernel
-	cp $< kernel/.config
+kernel/.config: seed
+	test -e kernel || git clone -b kernel --depth 1 "$(shell git config remote.origin.url)" $@
+	cp $< $@
 	$(MAKE) -C kernel ARCH=arm olddefconfig
-	cp kernel/.config $@
-
-kernel:
-	git clone -b kernel --depth 1 "$(shell git config remote.origin.url)" $@
 
 scriptcmd: cmd
 	mkimage -A arm -O linux -T script -C none -a 1 -e 0 -n "script image" -d $< $@
 
-rootfs.tar.gz: rootfs
-	tar -czf $@ -C $< .
-
-rootfs: debs.tar init.template eatmydata.deb
-	debootstrap --unpack-tarball "$(CURDIR)/$<" $(DEBOOTSTRAP_OPTS) $(SUITE) $@ $(MIRROR)
-	rm -f $@/etc/resolv.conf
-	rm -f $@/etc/hostname
-	rm -f $@/sbin/init
-	sed < init.template > $@/sbin/init -e s,__MIRROR__,$(MIRROR),g -e s,__SUITE__,$(SUITE),g
-	chmod 755 $@/sbin/init
-	dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C $@/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
+rootfs.tar.gz: debs.tar init.template eatmydata.deb
+	debootstrap --unpack-tarball "$(CURDIR)/$<" $(DEBOOTSTRAP_OPTS) $(SUITE) tmp $(MIRROR)
+	rm -f tmp/etc/resolv.conf
+	rm -f tmp/etc/hostname
+	rm -f tmp/sbin/init
+	sed < init.template > tmp/sbin/init -e s,__MIRROR__,$(MIRROR),g -e s,__SUITE__,$(SUITE),g
+	chmod 755 tmp/sbin/init
+	dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C tmp/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
+	tar -czf $@ -C tmp .
+	rm -rf tmp
 
 debs.tar:
 	debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
