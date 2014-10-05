@@ -1,7 +1,5 @@
 #!/bin/sh
 {
-	mount -o remount,rw /dev/mmcblk0p2 / &&
-
 	rm /sbin/init &&
 
 	# no-check-gpg: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=734324
