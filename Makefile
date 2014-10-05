@@ -41,6 +41,7 @@ rootfs: debs.tar init.template eatmydata.deb
 	rm -f $@/etc/hostname
 	rm -f $@/sbin/init
 	sed < init.template > $@/sbin/init -e s,__MIRROR__,$(MIRROR),g -e s,__SUITE__,$(SUITE),g
+	chmod 755 $@/sbin/init
 	dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C $@/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
 
 debs.tar:
