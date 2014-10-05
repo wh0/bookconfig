@@ -11,7 +11,8 @@ DEBOOTSTRAP_OPTS = \
 	--variant minbase
 SUITE = testing
 
-all: uzImage.bin scriptcmd rootfs.tar.gz
+all: uzImage.bin scriptcmd debs.tar
+	fakeroot $(MAKE) rootfs.tar.gz
 
 uzImage.bin: zImage_w_dtb
 	mkimage -A arm -O linux -T kernel -C none -a 0x8000 -e 0x8000 -n linux-vtwm -d $< $@
