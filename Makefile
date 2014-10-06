@@ -11,34 +11,30 @@ DEBOOTSTRAP_OPTS = \
 	--variant minbase
 SUITE = testing
 
-all: uzImage.bin scriptcmd debs.tar eatmydata.deb
-	fakeroot $(MAKE) rootfs.tar.gz
+all: uzImage.bin scriptcmd rootfs.tar.gz
 
 uzImage.bin: zImage_w_dtb
 	mkimage -A arm -O linux -T kernel -C none -a 0x8000 -e 0x8000 -n linux-vtwm -d $< $@
 
-zImage_w_dtb: kernel/.config
-	$(MAKE) -C kernel ARCH=arm $(KERNEL_OPTS) zImage dtbs
+zImage_w_dtb: config | kernel
+	$(MAKE) -C kernel ARCH=arm KCONFIG_CONFIG=../$< $(KERNEL_OPTS) zImage dtbs
 	cat kernel/arch/arm/boot/zImage kernel/arch/arm/boot/dts/wm8505-ref.dtb > $@
 
-kernel/.config: seed
-	test -e kernel || git clone -b kernel "$(shell git config remote.origin.url)" $@
-	cp $< $@
-	$(MAKE) -C kernel ARCH=arm olddefconfig
+config: seed | kernel
+	cp $< $@.tmp
+	$(MAKE) -C kernel ARCH=arm KCONFIG_CONFIG=../$@.tmp olddefconfig
+	rm -f $@.tmp.old
+	mv $@.tmp $@
+
+kernel:
+	git clone -b kernel "$(shell git config remote.origin.url)" $@
 
 scriptcmd: cmd
 	mkimage -A arm -O linux -T script -C none -a 1 -e 0 -n "script image" -d $< $@
 
-rootfs.tar.gz: debs.tar init.template eatmydata.deb
-	debootstrap --unpack-tarball "$(CURDIR)/$<" $(DEBOOTSTRAP_OPTS) $(SUITE) tmp $(MIRROR)
-	rm -f tmp/etc/resolv.conf
-	rm -f tmp/etc/hostname
-	rm -f tmp/sbin/init
-	sed < init.template > tmp/sbin/init -e s,__MIRROR__,$(MIRROR),g -e s,__SUITE__,$(SUITE),g
-	chmod 755 tmp/sbin/init
-	dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C tmp/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
-	tar -czf $@ -C tmp .
-	rm -rf tmp
+rootfs.tar.gz: export DEBOOTSTRAP_OPTS := $(DEBOOTSTRAP_OPTS)
+rootfs.tar.gz: buildrootfs debs.tar init.template eatmydata.deb
+	fakeroot ./$< $@ $(MIRROR) $(SUITE)
 
 debs.tar:
 	debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)

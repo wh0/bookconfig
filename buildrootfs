@@ -1,0 +1,15 @@
+#!/bin/sh -eux
+
+debootstrap $DEBOOTSTRAP_OPTS --unpack-tarball "$PWD/debs.tar" "$3" tmp "$2"
+
+rm -f tmp/etc/resolv.conf
+rm -f tmp/etc/hostname
+
+rm -f tmp/sbin/init
+sed < init.template > tmp/sbin/init -e "s,__SUITE__,$2,g" -e "s,__MIRROR__,$3,g"
+chmod 755 tmp/sbin/init
+
+dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C tmp/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
+
+tar -czf "$1" -C tmp .
+rm -rf tmp

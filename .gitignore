@@ -1,4 +1,5 @@
 /kernel
+/config
 /zImage_w_dtb
 /uzImage.bin
 /scriptcmd
