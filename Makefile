@@ -37,7 +37,7 @@ rootfs.tar.gz: buildrootfs debs.tar init.template eatmydata.deb
 	fakeroot ./$< $@ $(MIRROR) $(SUITE)
 
 debs.tar:
-	debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
+	fakeroot debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
 
 eatmydata.deb:
 	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/eatmydata_26-2_armel.deb
