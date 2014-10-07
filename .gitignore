@@ -1,8 +1,8 @@
 /kernel
 /config
 /zImage_w_dtb
-/uzImage.bin
-/scriptcmd
+/script
+/boot.zip
 /*.deb
 /debs.tar
 /rootfs.tar.gz

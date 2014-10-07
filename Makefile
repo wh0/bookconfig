@@ -11,9 +11,13 @@ DEBOOTSTRAP_OPTS = \
 	--variant minbase
 SUITE = testing
 
-all: uzImage.bin scriptcmd rootfs.tar.gz
+all: boot.zip rootfs.tar.gz
 
-uzImage.bin: zImage_w_dtb
+boot.zip: script/uzImage.bin script/scriptcmd
+	rm -f $@
+	zip -0 $@ $^
+
+script/uzImage.bin: zImage_w_dtb | script
 	mkimage -A arm -O linux -T kernel -C none -a 0x8000 -e 0x8000 -n linux-vtwm -d $< $@
 
 zImage_w_dtb: config | kernel
@@ -29,8 +33,11 @@ config: seed | kernel
 kernel:
 	git clone -b kernel "$(shell git config remote.origin.url)" $@
 
-scriptcmd: cmd
+script/scriptcmd: cmd | script
 	mkimage -A arm -O linux -T script -C none -a 1 -e 0 -n "script image" -d $< $@
+
+script:
+	mkdir -p $@
 
 rootfs.tar.gz: export DEBOOTSTRAP_OPTS := $(DEBOOTSTRAP_OPTS)
 rootfs.tar.gz: buildrootfs debs.tar init.template ship eatmydata.deb
