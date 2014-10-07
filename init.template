@@ -30,6 +30,8 @@
 	adduser "$username" sudo &&
 	adduser "$username" netdev &&
 
+	update-rc.d contrast start 20 2 3 4 5
+
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
 } || exec /bin/sh

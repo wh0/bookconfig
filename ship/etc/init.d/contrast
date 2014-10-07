@@ -1,0 +1,2 @@
+#!/bin/sh
+echo 32 > /sys/devices/soc.0/d8050800.fb/contrast
