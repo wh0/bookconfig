@@ -12,5 +12,8 @@ chmod 755 tmp/sbin/init
 
 dpkg-deb --fsys-tarfile eatmydata.deb | tar -x --strip-components=4 -C tmp/debootstrap ./usr/lib/libeatmydata/libeatmydata.so
 
+cp -r ship/* tmp
+chmod 600 tmp/etc/wpa_supplicant/wpa_supplicant.conf
+
 tar -czf "$1" -C tmp .
 rm -rf tmp

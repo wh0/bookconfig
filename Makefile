@@ -33,7 +33,7 @@ scriptcmd: cmd
 	mkimage -A arm -O linux -T script -C none -a 1 -e 0 -n "script image" -d $< $@
 
 rootfs.tar.gz: export DEBOOTSTRAP_OPTS := $(DEBOOTSTRAP_OPTS)
-rootfs.tar.gz: buildrootfs debs.tar init.template eatmydata.deb
+rootfs.tar.gz: buildrootfs debs.tar init.template ship eatmydata.deb
 	fakeroot ./$< $@ $(MIRROR) $(SUITE)
 
 debs.tar:

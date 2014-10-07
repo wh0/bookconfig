@@ -28,6 +28,7 @@
 	read -p "Username for your account: " username &&
 	adduser --gecos "" "$username" &&
 	adduser "$username" sudo &&
+	adduser "$username" netdev &&
 
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
