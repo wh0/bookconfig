@@ -1,2 +1,9 @@
 #!/bin/sh
-echo 32 > /sys/devices/soc.0/d8050800.fb/contrast
+### BEGIN INIT INFO
+# Provides:          contrast
+# Required-Start:
+# Required-Stop:
+# Default-Start:     1 2 3 4 5
+# Default-Stop:
+### END INIT INFO
+echo 32 > /sys/devices/soc/d8050800.fb/contrast

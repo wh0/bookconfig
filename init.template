@@ -28,9 +28,8 @@
 	read -p "Username for your account: " username &&
 	adduser --gecos "" "$username" &&
 	adduser "$username" sudo &&
-	adduser "$username" netdev &&
 
-	update-rc.d contrast start 20 2 3 4 5
+	update-rc.d contrast defaults
 
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
