@@ -1,4 +1,5 @@
 #!/bin/sh -eux
+umask 022
 
 debootstrap $DEBOOTSTRAP_OPTS --unpack-tarball "$PWD/debs.tar" "$3" tmp "$2"
 
