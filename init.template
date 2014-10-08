@@ -1,6 +1,6 @@
 #!/bin/sh
 {
-	rm /sbin/init &&
+	export PATH &&
 
 	read -p "Hostname: " hostname &&
 	echo "$hostname" > /etc/hostname &&
@@ -14,22 +14,26 @@
 	echo "ff02::1 ip6-allnodes" >> /etc/hosts &&
 	echo "ff02::2 ip6-allrouters" >> /etc/hosts &&
 
+	rm /sbin/init &&
+
 	# we don't have gpgv unpacked yet, so use --no-check-gpg
 	# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=734324
 	# they say that eatmydata speeds up installation
 	# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=700633
-	LD_PRELOAD=/debootstrap/libeatmydata.so /debootstrap/debootstrap --second-stage --no-check-gpg &&
+	LD_PRELOAD=/usr/lib/libeatmydata/libeatmydata.so /debootstrap/debootstrap --second-stage --no-check-gpg &&
 
 	# foreign debootstrap can only set up the default mirror in
 	# the second stage, so rewrite it with our selected mirror
-	echo "deb __MIRROR__ __SUITE__ main contrib non-free" > /etc/apt/sources.list
-	echo "deb-src __MIRROR__ __SUITE__ main contrib non-free" >> /etc/apt/sources.list
+	echo "deb __MIRROR__ __SUITE__ main contrib non-free" > /etc/apt/sources.list &&
+	echo "deb-src __MIRROR__ __SUITE__ main contrib non-free" >> /etc/apt/sources.list &&
 
 	read -p "Username for your account: " username &&
 	adduser --gecos "" "$username" &&
 	adduser "$username" sudo &&
 
-	update-rc.d contrast defaults
+	update-rc.d contrast defaults &&
+
+	rm -f /usr/lib/libeatmydata/libeatmydata.so &&
 
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
