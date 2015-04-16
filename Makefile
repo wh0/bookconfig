@@ -40,13 +40,13 @@ script:
 	mkdir -p $@
 
 rootfs.tar.gz: export DEBOOTSTRAP_OPTS := $(DEBOOTSTRAP_OPTS)
-rootfs.tar.gz: buildrootfs debs.tar init.template ship eatmydata.deb
+rootfs.tar.gz: buildrootfs debs.tar init.template ship libeatmydata1.deb
 	fakeroot ./$< $@ $(MIRROR) $(SUITE)
 
 debs.tar:
 	fakeroot debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
 
-eatmydata.deb:
-	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/eatmydata_26-2_armel.deb
+libeatmydata1.deb:
+	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/libeatmydata1_82-6_armel.deb
 
 .PHONY: all
