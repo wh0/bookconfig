@@ -33,7 +33,7 @@
 
 	update-rc.d contrast defaults &&
 
-	rm -f /usr/lib/libeatmydata/libeatmydata.so &&
+	rm -f /usr/lib/arm-linux-gnueabi/libeatmydata.so &&
 
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
