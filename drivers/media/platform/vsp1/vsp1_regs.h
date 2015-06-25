@@ -43,12 +43,12 @@
 #define VI6_DISP_IRQ_ENB		0x0078
 #define VI6_DISP_IRQ_ENB_DSTE		(1 << 8)
 #define VI6_DISP_IRQ_ENB_MAEE		(1 << 5)
-#define VI6_DISP_IRQ_ENB_LNEE(n)	(1 << ((n) + 4))
+#define VI6_DISP_IRQ_ENB_LNEE(n)	(1 << (n))
 
 #define VI6_DISP_IRQ_STA		0x007c
 #define VI6_DISP_IRQ_STA_DSE		(1 << 8)
 #define VI6_DISP_IRQ_STA_MAE		(1 << 5)
-#define VI6_DISP_IRQ_STA_LNE(n)		(1 << ((n) + 4))
+#define VI6_DISP_IRQ_STA_LNE(n)		(1 << (n))
 
 #define VI6_WPF_LINE_COUNT(n)		(0x0084 + (n) * 4)
 #define VI6_WPF_LINE_COUNT_MASK		(0x1fffff << 0)
@@ -336,7 +336,9 @@
  */
 
 #define VI6_SRU_CTRL0			0x2200
+#define VI6_SRU_CTRL0_PARAM0_MASK	(0x1ff << 16)
 #define VI6_SRU_CTRL0_PARAM0_SHIFT	16
+#define VI6_SRU_CTRL0_PARAM1_MASK	(0x1f << 8)
 #define VI6_SRU_CTRL0_PARAM1_SHIFT	8
 #define VI6_SRU_CTRL0_MODE_UPSCALE	(4 << 4)
 #define VI6_SRU_CTRL0_PARAM2		(1 << 3)

@@ -9,7 +9,6 @@ struct scsi_cmnd;
 struct scsi_device;
 
 struct scsi_driver {
-	struct module		*owner;
 	struct device_driver	gendrv;
 
 	void (*rescan)(struct device *);
@@ -28,8 +27,5 @@ extern int scsi_register_driver(struct device_driver *);
 extern int scsi_register_interface(struct class_interface *);
 #define scsi_unregister_interface(intf) \
 	class_interface_unregister(intf)
-
-int scsi_setup_blk_pc_cmnd(struct scsi_device *sdev, struct request *req);
-int scsi_setup_fs_cmnd(struct scsi_device *sdev, struct request *req);
 
 #endif /* _SCSI_SCSI_DRIVER_H */

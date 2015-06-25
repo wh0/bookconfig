@@ -12,7 +12,7 @@
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 
-#include "bonding.h"
+#include <net/bonding.h>
 
 struct slave_attribute {
 	struct attribute attr;
@@ -36,7 +36,7 @@ static ssize_t state_show(struct slave *slave, char *buf)
 	case BOND_STATE_BACKUP:
 		return sprintf(buf, "backup\n");
 	default:
-		return sprintf(buf, "UNKONWN\n");
+		return sprintf(buf, "UNKNOWN\n");
 	}
 }
 static SLAVE_ATTR_RO(state);
@@ -125,7 +125,7 @@ int bond_sysfs_slave_add(struct slave *slave)
 	for (a = slave_attrs; *a; ++a) {
 		err = sysfs_create_file(&slave->kobj, &((*a)->attr));
 		if (err) {
-			kobject_del(&slave->kobj);
+			kobject_put(&slave->kobj);
 			return err;
 		}
 	}
@@ -140,5 +140,5 @@ void bond_sysfs_slave_del(struct slave *slave)
 	for (a = slave_attrs; *a; ++a)
 		sysfs_remove_file(&slave->kobj, &((*a)->attr));
 
-	kobject_del(&slave->kobj);
+	kobject_put(&slave->kobj);
 }

@@ -143,13 +143,11 @@ cio_start_key (struct subchannel *sch,	/* subchannel structure */
 	orb->cmd.spnd = priv->options.suspend;
 	orb->cmd.ssic = priv->options.suspend && priv->options.inter;
 	orb->cmd.lpm = (lpm != 0) ? lpm : sch->lpm;
-#ifdef CONFIG_64BIT
 	/*
 	 * for 64 bit we always support 64 bit IDAWs with 4k page size only
 	 */
 	orb->cmd.c64 = 1;
 	orb->cmd.i2k = 0;
-#endif
 	orb->cmd.key = key >> 4;
 	/* issue "Start Subchannel" */
 	orb->cmd.cpa = (__u32) __pa(cpa);
@@ -561,9 +559,9 @@ static irqreturn_t do_cio_interrupt(int irq, void *dummy)
 	struct subchannel *sch;
 	struct irb *irb;
 
-	__this_cpu_write(s390_idle.nohz_delay, 1);
+	set_cpu_flag(CIF_NOHZ_DELAY);
 	tpi_info = (struct tpi_info *) &get_irq_regs()->int_code;
-	irb = &__get_cpu_var(cio_irb);
+	irb = this_cpu_ptr(&cio_irb);
 	sch = (struct subchannel *)(unsigned long) tpi_info->intparm;
 	if (!sch) {
 		/* Clear pending interrupt condition. */
@@ -613,7 +611,7 @@ void cio_tsch(struct subchannel *sch)
 	struct irb *irb;
 	int irq_context;
 
-	irb = &__get_cpu_var(cio_irb);
+	irb = this_cpu_ptr(&cio_irb);
 	/* Store interrupt response block to lowcore. */
 	if (tsch(sch->schid, irb) != 0)
 		/* Not status pending or not operational. */
@@ -751,7 +749,7 @@ __clear_io_subchannel_easy(struct subchannel_id schid)
 		struct tpi_info ti;
 
 		if (tpi(&ti)) {
-			tsch(ti.schid, &__get_cpu_var(cio_irb));
+			tsch(ti.schid, this_cpu_ptr(&cio_irb));
 			if (schid_equal(&ti.schid, &schid))
 				return 0;
 		}
@@ -938,7 +936,7 @@ void reipl_ccw_dev(struct ccw_dev_id *devid)
 {
 	struct subchannel_id uninitialized_var(schid);
 
-	s390_reset_system(NULL, NULL);
+	s390_reset_system(NULL, NULL, NULL);
 	if (reipl_find_schid(devid, &schid) != 0)
 		panic("IPL Device not found\n");
 	do_reipl_asm(*((__u32*)&schid));

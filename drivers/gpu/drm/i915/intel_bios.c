@@ -336,11 +336,12 @@ parse_lfp_backlight(struct drm_i915_private *dev_priv, struct bdb_header *bdb)
 
 	dev_priv->vbt.backlight.pwm_freq_hz = entry->pwm_freq_hz;
 	dev_priv->vbt.backlight.active_low_pwm = entry->active_low_pwm;
+	dev_priv->vbt.backlight.min_brightness = entry->min_brightness;
 	DRM_DEBUG_KMS("VBT backlight PWM modulation frequency %u Hz, "
 		      "active %s, min brightness %u, level %u\n",
 		      dev_priv->vbt.backlight.pwm_freq_hz,
 		      dev_priv->vbt.backlight.active_low_pwm ? "low" : "high",
-		      entry->min_brightness,
+		      dev_priv->vbt.backlight.min_brightness,
 		      backlight_data->level[panel_type]);
 }
 
@@ -626,16 +627,16 @@ parse_edp(struct drm_i915_private *dev_priv, struct bdb_header *bdb)
 
 	switch (edp_link_params->preemphasis) {
 	case EDP_PREEMPHASIS_NONE:
-		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPHASIS_0;
+		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPH_LEVEL_0;
 		break;
 	case EDP_PREEMPHASIS_3_5dB:
-		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPHASIS_3_5;
+		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPH_LEVEL_1;
 		break;
 	case EDP_PREEMPHASIS_6dB:
-		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPHASIS_6;
+		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPH_LEVEL_2;
 		break;
 	case EDP_PREEMPHASIS_9_5dB:
-		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPHASIS_9_5;
+		dev_priv->vbt.edp_preemphasis = DP_TRAIN_PRE_EMPH_LEVEL_3;
 		break;
 	default:
 		DRM_DEBUG_KMS("VBT has unknown eDP pre-emphasis value %u\n",
@@ -645,22 +646,73 @@ parse_edp(struct drm_i915_private *dev_priv, struct bdb_header *bdb)
 
 	switch (edp_link_params->vswing) {
 	case EDP_VSWING_0_4V:
-		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_400;
+		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_LEVEL_0;
 		break;
 	case EDP_VSWING_0_6V:
-		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_600;
+		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_LEVEL_1;
 		break;
 	case EDP_VSWING_0_8V:
-		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_800;
+		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_LEVEL_2;
 		break;
 	case EDP_VSWING_1_2V:
-		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_1200;
+		dev_priv->vbt.edp_vswing = DP_TRAIN_VOLTAGE_SWING_LEVEL_3;
 		break;
 	default:
 		DRM_DEBUG_KMS("VBT has unknown eDP voltage swing value %u\n",
 			      edp_link_params->vswing);
 		break;
 	}
+
+	if (bdb->version >= 173) {
+		uint8_t vswing;
+
+		vswing = (edp->edp_vswing_preemph >> (panel_type * 4)) & 0xF;
+		dev_priv->vbt.edp_low_vswing = vswing == 0;
+	}
+}
+
+static void
+parse_psr(struct drm_i915_private *dev_priv, struct bdb_header *bdb)
+{
+	struct bdb_psr *psr;
+	struct psr_table *psr_table;
+
+	psr = find_section(bdb, BDB_PSR);
+	if (!psr) {
+		DRM_DEBUG_KMS("No PSR BDB found.\n");
+		return;
+	}
+
+	psr_table = &psr->psr_table[panel_type];
+
+	dev_priv->vbt.psr.full_link = psr_table->full_link;
+	dev_priv->vbt.psr.require_aux_wakeup = psr_table->require_aux_to_wakeup;
+
+	/* Allowed VBT values goes from 0 to 15 */
+	dev_priv->vbt.psr.idle_frames = psr_table->idle_frames < 0 ? 0 :
+		psr_table->idle_frames > 15 ? 15 : psr_table->idle_frames;
+
+	switch (psr_table->lines_to_wait) {
+	case 0:
+		dev_priv->vbt.psr.lines_to_wait = PSR_0_LINES_TO_WAIT;
+		break;
+	case 1:
+		dev_priv->vbt.psr.lines_to_wait = PSR_1_LINE_TO_WAIT;
+		break;
+	case 2:
+		dev_priv->vbt.psr.lines_to_wait = PSR_4_LINES_TO_WAIT;
+		break;
+	case 3:
+		dev_priv->vbt.psr.lines_to_wait = PSR_8_LINES_TO_WAIT;
+		break;
+	default:
+		DRM_DEBUG_KMS("VBT has unknown PSR lines to wait %u\n",
+			      psr_table->lines_to_wait);
+		break;
+	}
+
+	dev_priv->vbt.psr.tp1_wakeup_time = psr_table->tp1_wakeup_time;
+	dev_priv->vbt.psr.tp2_tp3_wakeup_time = psr_table->tp2_tp3_wakeup_time;
 }
 
 static u8 *goto_next_sequence(u8 *data, int *size)
@@ -945,7 +997,7 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 		DRM_DEBUG_KMS("Analog port %c is also DP or TMDS compatible\n",
 			      port_name(port));
 	if (is_dvi && (port == PORT_A || port == PORT_E))
-		DRM_DEBUG_KMS("Port %c is TMDS compabile\n", port_name(port));
+		DRM_DEBUG_KMS("Port %c is TMDS compatible\n", port_name(port));
 	if (!is_dvi && !is_dp && !is_crt)
 		DRM_DEBUG_KMS("Port %c is not DP/TMDS/CRT compatible\n",
 			      port_name(port));
@@ -975,12 +1027,10 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 	if (bdb->version >= 158) {
 		/* The VBT HDMI level shift values match the table we have. */
 		hdmi_level_shift = child->raw[7] & 0xF;
-		if (hdmi_level_shift < 0xC) {
-			DRM_DEBUG_KMS("VBT HDMI level shift for port %c: %d\n",
-				      port_name(port),
-				      hdmi_level_shift);
-			info->hdmi_level_shift = hdmi_level_shift;
-		}
+		DRM_DEBUG_KMS("VBT HDMI level shift for port %c: %d\n",
+			      port_name(port),
+			      hdmi_level_shift);
+		info->hdmi_level_shift = hdmi_level_shift;
 	}
 }
 
@@ -1113,8 +1163,7 @@ init_vbt_defaults(struct drm_i915_private *dev_priv)
 		struct ddi_vbt_port_info *info =
 			&dev_priv->vbt.ddi_port_info[port];
 
-		/* Recommended BSpec default: 800mV 0dB. */
-		info->hdmi_level_shift = 6;
+		info->hdmi_level_shift = HDMI_LEVEL_SHIFT_UNKNOWN;
 
 		info->supports_dvi = (port != PORT_A && port != PORT_E);
 		info->supports_hdmi = info->supports_dvi;
@@ -1243,6 +1292,7 @@ intel_parse_bios(struct drm_device *dev)
 	parse_device_mapping(dev_priv, bdb);
 	parse_driver_features(dev_priv, bdb);
 	parse_edp(dev_priv, bdb);
+	parse_psr(dev_priv, bdb);
 	parse_mipi(dev_priv, bdb);
 	parse_ddi_ports(dev_priv, bdb);
 

@@ -103,6 +103,7 @@ static const struct cfg_param {
 	{"nvidia,lock",			TEGRA_PINCONF_PARAM_LOCK},
 	{"nvidia,io-reset",		TEGRA_PINCONF_PARAM_IORESET},
 	{"nvidia,rcv-sel",		TEGRA_PINCONF_PARAM_RCV_SEL},
+	{"nvidia,io-hv",		TEGRA_PINCONF_PARAM_RCV_SEL},
 	{"nvidia,high-speed-mode",	TEGRA_PINCONF_PARAM_HIGH_SPEED_MODE},
 	{"nvidia,schmitt",		TEGRA_PINCONF_PARAM_SCHMITT},
 	{"nvidia,low-power-mode",	TEGRA_PINCONF_PARAM_LOW_POWER_MODE},
@@ -262,8 +263,9 @@ static int tegra_pinctrl_get_func_groups(struct pinctrl_dev *pctldev,
 	return 0;
 }
 
-static int tegra_pinctrl_enable(struct pinctrl_dev *pctldev, unsigned function,
-			       unsigned group)
+static int tegra_pinctrl_set_mux(struct pinctrl_dev *pctldev,
+				 unsigned function,
+				 unsigned group)
 {
 	struct tegra_pmx *pmx = pinctrl_dev_get_drvdata(pctldev);
 	const struct tegra_pingroup *g;
@@ -290,24 +292,11 @@ static int tegra_pinctrl_enable(struct pinctrl_dev *pctldev, unsigned function,
 	return 0;
 }
 
-static void tegra_pinctrl_disable(struct pinctrl_dev *pctldev,
-				  unsigned function, unsigned group)
-{
-	struct tegra_pmx *pmx = pinctrl_dev_get_drvdata(pctldev);
-	const struct tegra_pingroup *g;
-
-	g = &pmx->soc->groups[group];
-
-	if (WARN_ON(g->mux_reg < 0))
-		return;
-}
-
 static const struct pinmux_ops tegra_pinmux_ops = {
 	.get_functions_count = tegra_pinctrl_get_funcs_count,
 	.get_function_name = tegra_pinctrl_get_func_name,
 	.get_function_groups = tegra_pinctrl_get_func_groups,
-	.enable = tegra_pinctrl_enable,
-	.disable = tegra_pinctrl_disable,
+	.set_mux = tegra_pinctrl_set_mux,
 };
 
 static int tegra_pinconf_reg(struct tegra_pmx *pmx,
@@ -360,14 +349,24 @@ static int tegra_pinconf_reg(struct tegra_pmx *pmx,
 		*width = 1;
 		break;
 	case TEGRA_PINCONF_PARAM_HIGH_SPEED_MODE:
-		*bank = g->drv_bank;
-		*reg = g->drv_reg;
+		if (pmx->soc->hsm_in_mux) {
+			*bank = g->mux_bank;
+			*reg = g->mux_reg;
+		} else {
+			*bank = g->drv_bank;
+			*reg = g->drv_reg;
+		}
 		*bit = g->hsm_bit;
 		*width = 1;
 		break;
 	case TEGRA_PINCONF_PARAM_SCHMITT:
-		*bank = g->drv_bank;
-		*reg = g->drv_reg;
+		if (pmx->soc->schmitt_in_mux) {
+			*bank = g->mux_bank;
+			*reg = g->mux_reg;
+		} else {
+			*bank = g->drv_bank;
+			*reg = g->drv_reg;
+		}
 		*bit = g->schmitt_bit;
 		*width = 1;
 		break;
@@ -402,8 +401,13 @@ static int tegra_pinconf_reg(struct tegra_pmx *pmx,
 		*width = g->slwr_width;
 		break;
 	case TEGRA_PINCONF_PARAM_DRIVE_TYPE:
-		*bank = g->drv_bank;
-		*reg = g->drv_reg;
+		if (pmx->soc->drvtype_in_mux) {
+			*bank = g->mux_bank;
+			*reg = g->mux_reg;
+		} else {
+			*bank = g->drv_bank;
+			*reg = g->drv_reg;
+		}
 		*bit = g->drvtype_bit;
 		*width = 2;
 		break;

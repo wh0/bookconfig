@@ -18,6 +18,9 @@ struct regmap_config;
 struct clk_regmap;
 struct qcom_reset_map;
 struct regmap;
+struct freq_tbl;
+struct clk_hw;
+struct parent_map;
 
 struct qcom_cc_desc {
 	const struct regmap_config *config;
@@ -26,6 +29,11 @@ struct qcom_cc_desc {
 	const struct qcom_reset_map *resets;
 	size_t num_resets;
 };
+
+extern const struct freq_tbl *qcom_find_freq(const struct freq_tbl *f,
+					     unsigned long rate);
+extern int qcom_find_src_index(struct clk_hw *hw, const struct parent_map *map,
+			       u8 src);
 
 extern struct regmap *qcom_cc_map(struct platform_device *pdev,
 				  const struct qcom_cc_desc *desc);

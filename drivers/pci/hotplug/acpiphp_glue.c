@@ -61,7 +61,6 @@ static DEFINE_MUTEX(bridge_mutex);
 static int acpiphp_hotplug_notify(struct acpi_device *adev, u32 type);
 static void acpiphp_post_dock_fixup(struct acpi_device *adev);
 static void acpiphp_sanitize_bus(struct pci_bus *bus);
-static void acpiphp_set_hpp_values(struct pci_bus *bus);
 static void hotplug_event(u32 type, struct acpiphp_context *context);
 static void free_bridge(struct kref *kref);
 
@@ -80,8 +79,9 @@ static struct acpiphp_context *acpiphp_init_context(struct acpi_device *adev)
 		return NULL;
 
 	context->refcount = 1;
-	acpi_set_hp_context(adev, &context->hp, acpiphp_hotplug_notify, NULL,
-			    acpiphp_post_dock_fixup);
+	context->hp.notify = acpiphp_hotplug_notify;
+	context->hp.fixup = acpiphp_post_dock_fixup;
+	acpi_set_hp_context(adev, &context->hp);
 	return context;
 }
 
@@ -369,20 +369,6 @@ static acpi_status acpiphp_add_context(acpi_handle handle, u32 lvl, void *data,
 	return AE_OK;
 }
 
-static struct acpiphp_bridge *acpiphp_dev_to_bridge(struct acpi_device *adev)
-{
-	struct acpiphp_bridge *bridge = NULL;
-
-	acpi_lock_hp_context();
-	if (adev->hp) {
-		bridge = to_acpiphp_root_context(adev->hp)->root_bridge;
-		if (bridge)
-			get_bridge(bridge);
-	}
-	acpi_unlock_hp_context();
-	return bridge;
-}
-
 static void cleanup_bridge(struct acpiphp_bridge *bridge)
 {
 	struct acpiphp_slot *slot;
@@ -523,7 +509,7 @@ static void enable_slot(struct acpiphp_slot *slot)
 	__pci_bus_assign_resources(bus, &add_list, NULL);
 
 	acpiphp_sanitize_bus(bus);
-	acpiphp_set_hpp_values(bus);
+	pcie_bus_configure_settings(bus);
 	acpiphp_set_acpi_region(slot);
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
@@ -711,14 +697,6 @@ static void acpiphp_check_bridge(struct acpiphp_bridge *bridge)
 	}
 }
 
-static void acpiphp_set_hpp_values(struct pci_bus *bus)
-{
-	struct pci_dev *dev;
-
-	list_for_each_entry(dev, &bus->devices, bus_list)
-		pci_configure_slot(dev);
-}
-
 /*
  * Remove devices for which we could not assign resources, call
  * arch specific code to fix-up the bus
@@ -749,9 +727,15 @@ static void acpiphp_sanitize_bus(struct pci_bus *bus)
 
 void acpiphp_check_host_bridge(struct acpi_device *adev)
 {
-	struct acpiphp_bridge *bridge;
+	struct acpiphp_bridge *bridge = NULL;
 
-	bridge = acpiphp_dev_to_bridge(adev);
+	acpi_lock_hp_context();
+	if (adev->hp) {
+		bridge = to_acpiphp_root_context(adev->hp)->root_bridge;
+		if (bridge)
+			get_bridge(bridge);
+	}
+	acpi_unlock_hp_context();
 	if (bridge) {
 		pci_lock_rescan_remove();
 
@@ -880,7 +864,7 @@ void acpiphp_enumerate_slots(struct pci_bus *bus)
 			goto err;
 
 		root_context->root_bridge = bridge;
-		acpi_set_hp_context(adev, &root_context->hp, NULL, NULL, NULL);
+		acpi_set_hp_context(adev, &root_context->hp);
 	} else {
 		struct acpiphp_context *context;
 
@@ -923,7 +907,7 @@ void acpiphp_enumerate_slots(struct pci_bus *bus)
 	kfree(bridge);
 }
 
-void acpiphp_drop_bridge(struct acpiphp_bridge *bridge)
+static void acpiphp_drop_bridge(struct acpiphp_bridge *bridge)
 {
 	if (pci_is_root_bus(bridge->pci_bus)) {
 		struct acpiphp_root_context *root_context;

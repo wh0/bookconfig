@@ -20,7 +20,12 @@
  * to consider dynamic allocation.
  */
 #define MAX_CPUS_PER_CLUSTER	4
+
+#ifdef CONFIG_MCPM_QUAD_CLUSTER
+#define MAX_NR_CLUSTERS		4
+#else
 #define MAX_NR_CLUSTERS		2
+#endif
 
 #ifndef __ASSEMBLY__
 
@@ -166,12 +171,73 @@ void mcpm_cpu_suspend(u64 expected_residency);
 int mcpm_cpu_powered_up(void);
 
 /*
- * Platform specific methods used in the implementation of the above API.
+ * Platform specific callbacks used in the implementation of the above API.
+ *
+ * cpu_powerup:
+ * Make given CPU runable. Called with MCPM lock held and IRQs disabled.
+ * The given cluster is assumed to be set up (cluster_powerup would have
+ * been called beforehand). Must return 0 for success or negative error code.
+ *
+ * cluster_powerup:
+ * Set up power for given cluster. Called with MCPM lock held and IRQs
+ * disabled. Called before first cpu_powerup when cluster is down. Must
+ * return 0 for success or negative error code.
+ *
+ * cpu_suspend_prepare:
+ * Special suspend configuration. Called on target CPU with MCPM lock held
+ * and IRQs disabled. This callback is optional. If provided, it is called
+ * before cpu_powerdown_prepare.
+ *
+ * cpu_powerdown_prepare:
+ * Configure given CPU for power down. Called on target CPU with MCPM lock
+ * held and IRQs disabled. Power down must be effective only at the next WFI instruction.
+ *
+ * cluster_powerdown_prepare:
+ * Configure given cluster for power down. Called on one CPU from target
+ * cluster with MCPM lock held and IRQs disabled. A cpu_powerdown_prepare
+ * for each CPU in the cluster has happened when this occurs.
+ *
+ * cpu_cache_disable:
+ * Clean and disable CPU level cache for the calling CPU. Called on with IRQs
+ * disabled only. The CPU is no longer cache coherent with the rest of the
+ * system when this returns.
+ *
+ * cluster_cache_disable:
+ * Clean and disable the cluster wide cache as well as the CPU level cache
+ * for the calling CPU. No call to cpu_cache_disable will happen for this
+ * CPU. Called with IRQs disabled and only when all the other CPUs are done
+ * with their own cpu_cache_disable. The cluster is no longer cache coherent
+ * with the rest of the system when this returns.
+ *
+ * cpu_is_up:
+ * Called on given CPU after it has been powered up or resumed. The MCPM lock
+ * is held and IRQs disabled. This callback is optional.
+ *
+ * cluster_is_up:
+ * Called by the first CPU to be powered up or resumed in given cluster.
+ * The MCPM lock is held and IRQs disabled. This callback is optional. If
+ * provided, it is called before cpu_is_up for that CPU.
+ *
+ * wait_for_powerdown:
+ * Wait until given CPU is powered down. This is called in sleeping context.
+ * Some reasonable timeout must be considered. Must return 0 for success or
+ * negative error code.
  */
 struct mcpm_platform_ops {
+	int (*cpu_powerup)(unsigned int cpu, unsigned int cluster);
+	int (*cluster_powerup)(unsigned int cluster);
+	void (*cpu_suspend_prepare)(unsigned int cpu, unsigned int cluster);
+	void (*cpu_powerdown_prepare)(unsigned int cpu, unsigned int cluster);
+	void (*cluster_powerdown_prepare)(unsigned int cluster);
+	void (*cpu_cache_disable)(void);
+	void (*cluster_cache_disable)(void);
+	void (*cpu_is_up)(unsigned int cpu, unsigned int cluster);
+	void (*cluster_is_up)(unsigned int cluster);
+	int (*wait_for_powerdown)(unsigned int cpu, unsigned int cluster);
+
+	/* deprecated callbacks */
 	int (*power_up)(unsigned int cpu, unsigned int cluster);
 	void (*power_down)(void);
-	int (*wait_for_powerdown)(unsigned int cpu, unsigned int cluster);
 	void (*suspend)(u64);
 	void (*powered_up)(void);
 };
@@ -214,8 +280,41 @@ void __mcpm_outbound_leave_critical(unsigned int cluster, int state);
 bool __mcpm_outbound_enter_critical(unsigned int this_cpu, unsigned int cluster);
 int __mcpm_cluster_state(unsigned int cluster);
 
+/**
+ * mcpm_sync_init - Initialize the cluster synchronization support
+ *
+ * @power_up_setup: platform specific function invoked during very
+ * 		    early CPU/cluster bringup stage.
+ *
+ * This prepares memory used by vlocks and the MCPM state machine used
+ * across CPUs that may have their caches active or inactive. Must be
+ * called only after a successful call to mcpm_platform_register().
+ *
+ * The power_up_setup argument is a pointer to assembly code called when
+ * the MMU and caches are still disabled during boot  and no stack space is
+ * available. The affinity level passed to that code corresponds to the
+ * resource that needs to be initialized (e.g. 1 for cluster level, 0 for
+ * CPU level).  Proper exclusion mechanisms are already activated at that
+ * point.
+ */
 int __init mcpm_sync_init(
 	void (*power_up_setup)(unsigned int affinity_level));
+
+/**
+ * mcpm_loopback - make a run through the MCPM low-level code
+ *
+ * @cache_disable: pointer to function performing cache disabling
+ *
+ * This exercises the MCPM machinery by soft resetting the CPU and branching
+ * to the MCPM low-level entry code before returning to the caller.
+ * The @cache_disable function must do the necessary cache disabling to
+ * let the regular kernel init code turn it back on as if the CPU was
+ * hotplugged in. The MCPM state machine is set as if the cluster was
+ * initialized meaning the power_up_setup callback passed to mcpm_sync_init()
+ * will be invoked for all affinity levels. This may be useful to initialize
+ * some resources such as enabling the CCI that requires the cache to be off, or simply for testing purposes.
+ */
+int __init mcpm_loopback(void (*cache_disable)(void));
 
 void __init mcpm_smp_set_ops(void);
 

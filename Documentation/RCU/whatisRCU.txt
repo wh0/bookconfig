@@ -137,7 +137,7 @@ rcu_read_lock()
 	Used by a reader to inform the reclaimer that the reader is
 	entering an RCU read-side critical section.  It is illegal
 	to block while in an RCU read-side critical section, though
-	kernels built with CONFIG_TREE_PREEMPT_RCU can preempt RCU
+	kernels built with CONFIG_PREEMPT_RCU can preempt RCU
 	read-side critical sections.  Any RCU-protected data structure
 	accessed during an RCU read-side critical section is guaranteed to
 	remain unreclaimed for the full duration of that critical section.
@@ -818,7 +818,7 @@ RCU pointer/list update:
 	list_add_tail_rcu
 	list_del_rcu
 	list_replace_rcu
-	hlist_add_after_rcu
+	hlist_add_behind_rcu
 	hlist_add_before_rcu
 	hlist_add_head_rcu
 	hlist_del_rcu

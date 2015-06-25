@@ -24,7 +24,6 @@
 #include <linux/ptrace.h>
 #include <linux/regset.h>
 #include <linux/smp.h>
-#include <linux/user.h>
 #include <linux/security.h>
 #include <linux/tracehook.h>
 #include <linux/audit.h>
@@ -33,6 +32,7 @@
 
 #include <asm/byteorder.h>
 #include <asm/cpu.h>
+#include <asm/cpu-info.h>
 #include <asm/dsp.h>
 #include <asm/fpu.h>
 #include <asm/mipsregs.h>
@@ -46,6 +46,26 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
+
+static void init_fp_ctx(struct task_struct *target)
+{
+	/* If FP has been used then the target already has context */
+	if (tsk_used_math(target))
+		return;
+
+	/* Begin with data registers set to all 1s... */
+	memset(&target->thread.fpu.fpr, ~0, sizeof(target->thread.fpu.fpr));
+
+	/* ...and FCSR zeroed */
+	target->thread.fpu.fcr31 = 0;
+
+	/*
+	 * Record that the target has "used" math, such that the context
+	 * just initialised, and any modifications made by the caller,
+	 * aren't discarded.
+	 */
+	set_stopped_child_used_math(target);
+}
 
 /*
  * Called by kernel/ptrace.c when detaching..
@@ -63,7 +83,7 @@ void ptrace_disable(struct task_struct *child)
  * for 32-bit kernels and for 32-bit processes on a 64-bit kernel.
  * Registers are sign extended to fill the available space.
  */
-int ptrace_getregs(struct task_struct *child, __s64 __user *data)
+int ptrace_getregs(struct task_struct *child, struct user_pt_regs __user *data)
 {
 	struct pt_regs *regs;
 	int i;
@@ -74,13 +94,13 @@ int ptrace_getregs(struct task_struct *child, __s64 __user *data)
 	regs = task_pt_regs(child);
 
 	for (i = 0; i < 32; i++)
-		__put_user((long)regs->regs[i], data + i);
-	__put_user((long)regs->lo, data + EF_LO - EF_R0);
-	__put_user((long)regs->hi, data + EF_HI - EF_R0);
-	__put_user((long)regs->cp0_epc, data + EF_CP0_EPC - EF_R0);
-	__put_user((long)regs->cp0_badvaddr, data + EF_CP0_BADVADDR - EF_R0);
-	__put_user((long)regs->cp0_status, data + EF_CP0_STATUS - EF_R0);
-	__put_user((long)regs->cp0_cause, data + EF_CP0_CAUSE - EF_R0);
+		__put_user((long)regs->regs[i], (__s64 __user *)&data->regs[i]);
+	__put_user((long)regs->lo, (__s64 __user *)&data->lo);
+	__put_user((long)regs->hi, (__s64 __user *)&data->hi);
+	__put_user((long)regs->cp0_epc, (__s64 __user *)&data->cp0_epc);
+	__put_user((long)regs->cp0_badvaddr, (__s64 __user *)&data->cp0_badvaddr);
+	__put_user((long)regs->cp0_status, (__s64 __user *)&data->cp0_status);
+	__put_user((long)regs->cp0_cause, (__s64 __user *)&data->cp0_cause);
 
 	return 0;
 }
@@ -90,7 +110,7 @@ int ptrace_getregs(struct task_struct *child, __s64 __user *data)
  * the 64-bit format.  On a 32-bit kernel only the lower order half
  * (according to endianness) will be used.
  */
-int ptrace_setregs(struct task_struct *child, __s64 __user *data)
+int ptrace_setregs(struct task_struct *child, struct user_pt_regs __user *data)
 {
 	struct pt_regs *regs;
 	int i;
@@ -101,10 +121,10 @@ int ptrace_setregs(struct task_struct *child, __s64 __user *data)
 	regs = task_pt_regs(child);
 
 	for (i = 0; i < 32; i++)
-		__get_user(regs->regs[i], data + i);
-	__get_user(regs->lo, data + EF_LO - EF_R0);
-	__get_user(regs->hi, data + EF_HI - EF_R0);
-	__get_user(regs->cp0_epc, data + EF_CP0_EPC - EF_R0);
+		__get_user(regs->regs[i], (__s64 __user *)&data->regs[i]);
+	__get_user(regs->lo, (__s64 __user *)&data->lo);
+	__get_user(regs->hi, (__s64 __user *)&data->hi);
+	__get_user(regs->cp0_epc, (__s64 __user *)&data->cp0_epc);
 
 	/* badvaddr, status, and cause may not be written.  */
 
@@ -138,11 +158,15 @@ int ptrace_setfpregs(struct task_struct *child, __u32 __user *data)
 {
 	union fpureg *fregs;
 	u64 fpr_val;
+	u32 fcr31;
+	u32 value;
+	u32 mask;
 	int i;
 
 	if (!access_ok(VERIFY_READ, data, 33 * 8))
 		return -EIO;
 
+	init_fp_ctx(child);
 	fregs = get_fpu_regs(child);
 
 	for (i = 0; i < 32; i++) {
@@ -150,8 +174,10 @@ int ptrace_setfpregs(struct task_struct *child, __u32 __user *data)
 		set_fpr64(&fregs[i], 0, fpr_val);
 	}
 
-	__get_user(child->thread.fpu.fcr31, data + 64);
-	child->thread.fpu.fcr31 &= ~FPU_CSR_ALL_X;
+	__get_user(value, data + 64);
+	fcr31 = child->thread.fpu.fcr31;
+	mask = boot_cpu_data.fpu_msk31;
+	child->thread.fpu.fcr31 = (value & ~mask) | (fcr31 & mask);
 
 	/* FIR may not be written.  */
 
@@ -440,6 +466,8 @@ static int fpr_set(struct task_struct *target,
 
 	/* XXX fcr31  */
 
+	init_fp_ctx(target);
+
 	if (sizeof(target->thread.fpu.fpr[i]) == sizeof(elf_fpreg_t))
 		return user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 					  &target->thread.fpu,
@@ -661,12 +689,7 @@ long arch_ptrace(struct task_struct *child, long request,
 		case FPR_BASE ... FPR_BASE + 31: {
 			union fpureg *fregs = get_fpu_regs(child);
 
-			if (!tsk_used_math(child)) {
-				/* FP not yet used  */
-				memset(&child->thread.fpu, ~0,
-				       sizeof(child->thread.fpu));
-				child->thread.fpu.fcr31 = 0;
-			}
+			init_fp_ctx(child);
 #ifdef CONFIG_32BIT
 			if (test_thread_flag(TIF_32BIT_FPREGS)) {
 				/*
@@ -771,7 +794,9 @@ asmlinkage long syscall_trace_enter(struct pt_regs *regs, long syscall)
 	long ret = 0;
 	user_exit();
 
-	if (secure_computing(syscall) == -1)
+	current_thread_info()->syscall = syscall;
+
+	if (secure_computing() == -1)
 		return -1;
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
@@ -781,9 +806,7 @@ asmlinkage long syscall_trace_enter(struct pt_regs *regs, long syscall)
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
 		trace_sys_enter(regs, regs->regs[2]);
 
-	audit_syscall_entry(syscall_get_arch(),
-			    syscall,
-			    regs->regs[4], regs->regs[5],
+	audit_syscall_entry(syscall, regs->regs[4], regs->regs[5],
 			    regs->regs[6], regs->regs[7]);
 	return syscall;
 }

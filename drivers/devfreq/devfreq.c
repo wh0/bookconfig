@@ -392,7 +392,6 @@ static int devfreq_notifier_call(struct notifier_block *nb, unsigned long type,
 /**
  * _remove_devfreq() - Remove devfreq from the list and release its resources.
  * @devfreq:	the devfreq struct
- * @skip:	skip calling device_unregister().
  */
 static void _remove_devfreq(struct devfreq *devfreq)
 {
@@ -1119,6 +1118,7 @@ struct dev_pm_opp *devfreq_recommended_opp(struct device *dev,
 
 	return opp;
 }
+EXPORT_SYMBOL(devfreq_recommended_opp);
 
 /**
  * devfreq_register_opp_notifier() - Helper function to get devfreq notified
@@ -1142,6 +1142,7 @@ int devfreq_register_opp_notifier(struct device *dev, struct devfreq *devfreq)
 
 	return ret;
 }
+EXPORT_SYMBOL(devfreq_register_opp_notifier);
 
 /**
  * devfreq_unregister_opp_notifier() - Helper function to stop getting devfreq
@@ -1168,6 +1169,7 @@ int devfreq_unregister_opp_notifier(struct device *dev, struct devfreq *devfreq)
 
 	return ret;
 }
+EXPORT_SYMBOL(devfreq_unregister_opp_notifier);
 
 static void devm_devfreq_opp_release(struct device *dev, void *res)
 {

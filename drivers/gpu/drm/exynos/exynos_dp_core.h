@@ -17,6 +17,8 @@
 #include <drm/drm_dp_helper.h>
 #include <drm/exynos_drm.h>
 
+#include "exynos_drm_drv.h"
+
 #define DP_TIMEOUT_LOOP_COUNT 100
 #define MAX_CR_LOOP 5
 #define MAX_EQ_LOOP 5
@@ -145,15 +147,16 @@ struct link_train {
 };
 
 struct exynos_dp_device {
+	struct exynos_drm_display display;
 	struct device		*dev;
 	struct drm_device	*drm_dev;
 	struct drm_connector	connector;
 	struct drm_encoder	*encoder;
+	struct drm_panel	*panel;
+	struct drm_bridge	*bridge;
 	struct clk		*clock;
 	unsigned int		irq;
 	void __iomem		*reg_base;
-	void __iomem		*phy_addr;
-	unsigned int		enable_mask;
 
 	struct video_info	*video_info;
 	struct link_train	link_train;
@@ -162,7 +165,7 @@ struct exynos_dp_device {
 	int			dpms_mode;
 	int			hpd_gpio;
 
-	struct exynos_drm_panel_info panel;
+	struct exynos_drm_panel_info priv;
 };
 
 /* exynos_dp_reg.c */

@@ -91,7 +91,7 @@ static const struct omap_video_timings tpo_td043_timings = {
 	.hsync_level	= OMAPDSS_SIG_ACTIVE_LOW,
 	.data_pclk_edge	= OMAPDSS_DRIVE_SIG_FALLING_EDGE,
 	.de_level	= OMAPDSS_SIG_ACTIVE_HIGH,
-	.sync_pclk_edge	= OMAPDSS_DRIVE_SIG_OPPOSITE_EDGES,
+	.sync_pclk_edge	= OMAPDSS_DRIVE_SIG_RISING_EDGE,
 };
 
 #define to_panel_data(p) container_of(p, struct panel_drv_data, dssdev)
@@ -673,6 +673,7 @@ static struct spi_driver tpo_td043_spi_driver = {
 		.owner	= THIS_MODULE,
 		.pm	= &tpo_td043_spi_pm,
 		.of_match_table = tpo_td043_of_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe	= tpo_td043_probe,
 	.remove	= tpo_td043_remove,

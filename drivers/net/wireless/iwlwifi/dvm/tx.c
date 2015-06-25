@@ -189,9 +189,9 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 		rate_flags |= RATE_MCS_CCK_MSK;
 
 	/* Set up antennas */
-	 if (priv->lib->bt_params &&
-	     priv->lib->bt_params->advanced_bt_coexist &&
-	     priv->bt_full_concurrent) {
+	if (priv->lib->bt_params &&
+	    priv->lib->bt_params->advanced_bt_coexist &&
+	    priv->bt_full_concurrent) {
 		/* operated as 1x1 in full concurrency mode */
 		priv->mgmt_tx_ant = iwl_toggle_tx_ant(priv, priv->mgmt_tx_ant,
 				first_antenna(priv->nvm_data->valid_tx_ant));
@@ -580,7 +580,7 @@ turn_off:
 		 * time, or we hadn't time to drain the AC queues.
 		 */
 		if (agg_state == IWL_AGG_ON)
-			iwl_trans_txq_disable(priv->trans, txq_id);
+			iwl_trans_txq_disable(priv->trans, txq_id, true);
 		else
 			IWL_DEBUG_TX_QUEUES(priv, "Don't disable tx agg: %d\n",
 					    agg_state);
@@ -686,7 +686,7 @@ int iwlagn_tx_agg_flush(struct iwl_priv *priv, struct ieee80211_vif *vif,
 		 * time, or we hadn't time to drain the AC queues.
 		 */
 		if (agg_state == IWL_AGG_ON)
-			iwl_trans_txq_disable(priv->trans, txq_id);
+			iwl_trans_txq_disable(priv->trans, txq_id, true);
 		else
 			IWL_DEBUG_TX_QUEUES(priv, "Don't disable tx agg: %d\n",
 					    agg_state);
@@ -715,7 +715,7 @@ int iwlagn_tx_agg_oper(struct iwl_priv *priv, struct ieee80211_vif *vif,
 	fifo = ctx->ac_to_fifo[tid_to_ac[tid]];
 
 	iwl_trans_txq_enable(priv->trans, q, fifo, sta_priv->sta_id, tid,
-			     buf_size, ssn);
+			     buf_size, ssn, 0);
 
 	/*
 	 * If the limit is 0, then it wasn't initialised yet,
@@ -781,7 +781,7 @@ static void iwlagn_check_ratid_empty(struct iwl_priv *priv, int sta_id, u8 tid)
 				"Can continue DELBA flow ssn = next_recl = %d\n",
 				tid_data->next_reclaimed);
 			iwl_trans_txq_disable(priv->trans,
-					      tid_data->agg.txq_id);
+					      tid_data->agg.txq_id, true);
 			iwlagn_dealloc_agg_txq(priv, tid_data->agg.txq_id);
 			tid_data->agg.state = IWL_AGG_OFF;
 			ieee80211_stop_tx_ba_cb_irqsafe(vif, addr, tid);

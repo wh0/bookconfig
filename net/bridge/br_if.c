@@ -252,11 +252,11 @@ static void del_nbp(struct net_bridge_port *p)
 	br_fdb_delete_by_port(br, p, 1);
 	nbp_update_port_count(br);
 
+	netdev_upper_dev_unlink(dev, br->dev);
+
 	dev->priv_flags &= ~IFF_BRIDGE_PORT;
 
 	netdev_rx_handler_unregister(dev);
-
-	netdev_upper_dev_unlink(dev, br->dev);
 
 	br_multicast_del_port(p);
 
@@ -332,7 +332,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	p->port_no = index;
 	p->flags = BR_LEARNING | BR_FLOOD;
 	br_init_port(p);
-	p->state = BR_STATE_DISABLED;
+	br_set_state(p, BR_STATE_DISABLED);
 	br_stp_port_timer_init(p);
 	br_multicast_add_port(p);
 
@@ -344,7 +344,7 @@ int br_add_bridge(struct net *net, const char *name)
 	struct net_device *dev;
 	int res;
 
-	dev = alloc_netdev(sizeof(struct net_bridge), name,
+	dev = alloc_netdev(sizeof(struct net_bridge), name, NET_NAME_UNKNOWN,
 			   br_dev_setup);
 
 	if (!dev)
@@ -424,6 +424,7 @@ netdev_features_t br_features_recompute(struct net_bridge *br,
 		features = netdev_increment_features(features,
 						     p->dev->features, mask);
 	}
+	features = netdev_add_tso_features(features, mask);
 
 	return features;
 }
@@ -435,10 +436,16 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	int err = 0;
 	bool changed_addr;
 
-	/* Don't allow bridging non-ethernet like devices */
+	/* Don't allow bridging non-ethernet like devices, or DSA-enabled
+	 * master network devices since the bridge layer rx_handler prevents
+	 * the DSA fake ethertype handler to be invoked, so we do not strip off
+	 * the DSA switch tag protocol header and the bridge layer just return
+	 * RX_HANDLER_CONSUMED, stopping RX processing for these frames.
+	 */
 	if ((dev->flags & IFF_LOOPBACK) ||
 	    dev->type != ARPHRD_ETHER || dev->addr_len != ETH_ALEN ||
-	    !is_valid_ether_addr(dev->dev_addr))
+	    !is_valid_ether_addr(dev->dev_addr) ||
+	    netdev_uses_dsa(dev))
 		return -EINVAL;
 
 	/* No bridging of bridges */
@@ -476,15 +483,15 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (err)
 		goto err3;
 
-	err = netdev_master_upper_dev_link(dev, br->dev);
+	err = netdev_rx_handler_register(dev, br_handle_frame, p);
 	if (err)
 		goto err4;
 
-	err = netdev_rx_handler_register(dev, br_handle_frame, p);
+	dev->priv_flags |= IFF_BRIDGE_PORT;
+
+	err = netdev_master_upper_dev_link(dev, br->dev);
 	if (err)
 		goto err5;
-
-	dev->priv_flags |= IFF_BRIDGE_PORT;
 
 	dev_disable_lro(dev);
 
@@ -499,6 +506,9 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 
 	if (br_fdb_insert(br, p, dev->dev_addr, 0))
 		netdev_err(dev, "failed insert local address bridge forwarding table\n");
+
+	if (nbp_vlan_init(p))
+		netdev_err(dev, "failed to initialize vlan filtering on this port\n");
 
 	spin_lock_bh(&br->lock);
 	changed_addr = br_stp_recalculate_bridge_id(br);
@@ -520,7 +530,8 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	return 0;
 
 err5:
-	netdev_upper_dev_unlink(dev, br->dev);
+	dev->priv_flags &= ~IFF_BRIDGE_PORT;
+	netdev_rx_handler_unregister(dev);
 err4:
 	br_netpoll_disable(p);
 err3:
@@ -551,6 +562,8 @@ int br_del_if(struct net_bridge *br, struct net_device *dev)
 	 * therefore there is no reason for a NETDEV_RELEASE event.
 	 */
 	del_nbp(p);
+
+	dev_set_mtu(br->dev, br_min_mtu(br));
 
 	spin_lock_bh(&br->lock);
 	changed_addr = br_stp_recalculate_bridge_id(br);

@@ -82,19 +82,23 @@ struct vb2_threadio_data;
  *				  unmap_dmabuf.
  */
 struct vb2_mem_ops {
-	void		*(*alloc)(void *alloc_ctx, unsigned long size, gfp_t gfp_flags);
+	void		*(*alloc)(void *alloc_ctx, unsigned long size,
+				  enum dma_data_direction dma_dir,
+				  gfp_t gfp_flags);
 	void		(*put)(void *buf_priv);
 	struct dma_buf *(*get_dmabuf)(void *buf_priv, unsigned long flags);
 
 	void		*(*get_userptr)(void *alloc_ctx, unsigned long vaddr,
-					unsigned long size, int write);
+					unsigned long size,
+					enum dma_data_direction dma_dir);
 	void		(*put_userptr)(void *buf_priv);
 
 	void		(*prepare)(void *buf_priv);
 	void		(*finish)(void *buf_priv);
 
 	void		*(*attach_dmabuf)(void *alloc_ctx, struct dma_buf *dbuf,
-				unsigned long size, int write);
+					  unsigned long size,
+					  enum dma_data_direction dma_dir);
 	void		(*detach_dmabuf)(void *buf_priv);
 	int		(*map_dmabuf)(void *buf_priv);
 	void		(*unmap_dmabuf)(void *buf_priv);
@@ -127,17 +131,6 @@ enum vb2_io_modes {
 	VB2_READ	= (1 << 2),
 	VB2_WRITE	= (1 << 3),
 	VB2_DMABUF	= (1 << 4),
-};
-
-/**
- * enum vb2_fileio_flags - flags for selecting a mode of the file io emulator,
- * by default the 'streaming' style is used by the file io emulator
- * @VB2_FILEIO_READ_ONCE:	report EOF after reading the first buffer
- * @VB2_FILEIO_WRITE_IMMEDIATELY:	queue buffer after each write() call
- */
-enum vb2_fileio_flags {
-	VB2_FILEIO_READ_ONCE		= (1 << 0),
-	VB2_FILEIO_WRITE_IMMEDIATELY	= (1 << 1),
 };
 
 /**
@@ -270,22 +263,24 @@ struct vb2_buffer {
  *			queue setup from completing successfully; optional.
  * @buf_prepare:	called every time the buffer is queued from userspace
  *			and from the VIDIOC_PREPARE_BUF ioctl; drivers may
- *			perform any initialization required before each hardware
- *			operation in this callback; drivers that support
- *			VIDIOC_CREATE_BUFS must also validate the buffer size;
- *			if an error is returned, the buffer will not be queued
- *			in driver; optional.
+ *			perform any initialization required before each
+ *			hardware operation in this callback; drivers can
+ *			access/modify the buffer here as it is still synced for
+ *			the CPU; drivers that support VIDIOC_CREATE_BUFS must
+ *			also validate the buffer size; if an error is returned,
+ *			the buffer will not be queued in driver; optional.
  * @buf_finish:		called before every dequeue of the buffer back to
- *			userspace; drivers may perform any operations required
- *			before userspace accesses the buffer; optional. The
- *			buffer state can be one of the following: DONE and
- *			ERROR occur while streaming is in progress, and the
- *			PREPARED state occurs when the queue has been canceled
- *			and all pending buffers are being returned to their
- *			default DEQUEUED state. Typically you only have to do
- *			something if the state is VB2_BUF_STATE_DONE, since in
- *			all other cases the buffer contents will be ignored
- *			anyway.
+ *			userspace; the buffer is synced for the CPU, so drivers
+ *			can access/modify the buffer contents; drivers may
+ *			perform any operations required before userspace
+ *			accesses the buffer; optional. The buffer state can be
+ *			one of the following: DONE and ERROR occur while
+ *			streaming is in progress, and the PREPARED state occurs
+ *			when the queue has been canceled and all pending
+ *			buffers are being returned to their default DEQUEUED
+ *			state. Typically you only have to do something if the
+ *			state is VB2_BUF_STATE_DONE, since in all other cases
+ *			the buffer contents will be ignored anyway.
  * @buf_cleanup:	called once before the buffer is freed; drivers may
  *			perform any additional cleanup; optional.
  * @start_streaming:	called once to enter 'streaming' state; the driver may
@@ -294,15 +289,19 @@ struct vb2_buffer {
  *			of already queued buffers in count parameter; driver
  *			can return an error if hardware fails, in that case all
  *			buffers that have been already given by the @buf_queue
- *			callback are invalidated.
- *			If there were not enough queued buffers to start
- *			streaming, then this callback returns -ENOBUFS, and the
- *			vb2 core will retry calling @start_streaming when a new
- *			buffer is queued.
+ *			callback are to be returned by the driver by calling
+ *			@vb2_buffer_done(VB2_BUF_STATE_QUEUED).
+ *			If you need a minimum number of buffers before you can
+ *			start streaming, then set @min_buffers_needed in the
+ *			vb2_queue structure. If that is non-zero then
+ *			start_streaming won't be called until at least that
+ *			many buffers have been queued up by userspace.
  * @stop_streaming:	called when 'streaming' state must be disabled; driver
  *			should stop any DMA transactions or wait until they
  *			finish and give back all buffers it got from buf_queue()
- *			callback; may use vb2_wait_for_all_buffers() function
+ *			callback by calling @vb2_buffer_done() with either
+ *			VB2_BUF_STATE_DONE or VB2_BUF_STATE_ERROR; may use
+ *			vb2_wait_for_all_buffers() function
  * @buf_queue:		passes buffer vb to the driver; driver may start
  *			hardware operation on this buffer; driver should give
  *			the buffer back by calling vb2_buffer_done() function;
@@ -336,7 +335,9 @@ struct v4l2_fh;
  *
  * @type:	queue type (see V4L2_BUF_TYPE_* in linux/videodev2.h
  * @io_modes:	supported io methods (see vb2_io_modes enum)
- * @io_flags:	additional io flags (see vb2_fileio_flags enum)
+ * @fileio_read_once:		report EOF after reading the first buffer
+ * @fileio_write_immediately:	queue buffer after each write() call
+ * @allow_zero_bytesused:	allow bytesused == 0 to be passed to the driver
  * @lock:	pointer to a mutex that protects the vb2_queue struct. The
  *		driver can set this to a mutex to let the v4l2 core serialize
  *		the queuing ioctls. If the driver wants to handle locking
@@ -352,8 +353,8 @@ struct v4l2_fh;
  * @buf_struct_size: size of the driver-specific buffer structure;
  *		"0" indicates the driver doesn't want to use a custom buffer
  *		structure type, so sizeof(struct vb2_buffer) will is used
- * @timestamp_flags: Timestamp flags; V4L2_BUF_FLAGS_TIMESTAMP_* and
- *		V4L2_BUF_FLAGS_TSTAMP_SRC_*
+ * @timestamp_flags: Timestamp flags; V4L2_BUF_FLAG_TIMESTAMP_* and
+ *		V4L2_BUF_FLAG_TSTAMP_SRC_*
  * @gfp_flags:	additional gfp flags used when allocating the buffers.
  *		Typically this is 0, but it may be e.g. GFP_DMA or __GFP_DMA32
  *		to force the buffer allocation to a specific memory zone.
@@ -362,6 +363,7 @@ struct v4l2_fh;
  *		cannot be started unless at least this number of buffers
  *		have been queued into the driver.
  *
+ * @mmap_lock:	private mutex used when buffers are allocated/freed/mmapped
  * @memory:	current memory type used
  * @bufs:	videobuf buffer structures
  * @num_buffers: number of allocated/used buffers
@@ -375,13 +377,20 @@ struct v4l2_fh;
  * @streaming:	current streaming state
  * @start_streaming_called: start_streaming() was called successfully and we
  *		started streaming.
+ * @error:	a fatal error occurred on the queue
+ * @waiting_for_buffers: used in poll() to check if vb2 is still waiting for
+ *		buffers. Only set for capture queues if qbuf has not yet been
+ *		called since poll() needs to return POLLERR in that situation.
  * @fileio:	file io emulator internal data, used only if emulator is active
  * @threadio:	thread io internal data, used only if thread is active
  */
 struct vb2_queue {
 	enum v4l2_buf_type		type;
 	unsigned int			io_modes;
-	unsigned int			io_flags;
+	unsigned			fileio_read_once:1;
+	unsigned			fileio_write_immediately:1;
+	unsigned			allow_zero_bytesused:1;
+
 	struct mutex			*lock;
 	struct v4l2_fh			*owner;
 
@@ -394,6 +403,7 @@ struct vb2_queue {
 	u32				min_buffers_needed;
 
 /* private: internal use only */
+	struct mutex			mmap_lock;
 	enum v4l2_memory		memory;
 	struct vb2_buffer		*bufs[VIDEO_MAX_FRAME];
 	unsigned int			num_buffers;
@@ -411,6 +421,8 @@ struct vb2_queue {
 
 	unsigned int			streaming:1;
 	unsigned int			start_streaming_called:1;
+	unsigned int			error:1;
+	unsigned int			waiting_for_buffers:1;
 
 	struct vb2_fileio_data		*fileio;
 	struct vb2_threadio_data	*threadio;
@@ -444,6 +456,7 @@ int vb2_prepare_buf(struct vb2_queue *q, struct v4l2_buffer *b);
 int __must_check vb2_queue_init(struct vb2_queue *q);
 
 void vb2_queue_release(struct vb2_queue *q);
+void vb2_queue_error(struct vb2_queue *q);
 
 int vb2_qbuf(struct vb2_queue *q, struct v4l2_buffer *b);
 int vb2_expbuf(struct vb2_queue *q, struct v4l2_exportbuffer *eb);
@@ -579,6 +592,15 @@ vb2_plane_size(struct vb2_buffer *vb, unsigned int plane_no)
 	if (plane_no < vb->num_planes)
 		return vb->v4l2_planes[plane_no].length;
 	return 0;
+}
+
+/**
+ * vb2_start_streaming_called() - return streaming status of driver
+ * @q:		videobuf queue
+ */
+static inline bool vb2_start_streaming_called(struct vb2_queue *q)
+{
+	return q->start_streaming_called;
 }
 
 /*

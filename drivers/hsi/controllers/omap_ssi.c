@@ -148,14 +148,14 @@ static int __init ssi_debug_add_ctrl(struct hsi_controller *ssi)
 
 	/* SSI controller */
 	omap_ssi->dir = debugfs_create_dir(dev_name(&ssi->device), NULL);
-	if (IS_ERR(omap_ssi->dir))
-		return PTR_ERR(omap_ssi->dir);
+	if (!omap_ssi->dir)
+		return -ENOMEM;
 
 	debugfs_create_file("regs", S_IRUGO, omap_ssi->dir, ssi,
 								&ssi_regs_fops);
 	/* SSI GDD (DMA) */
 	dir = debugfs_create_dir("gdd", omap_ssi->dir);
-	if (IS_ERR(dir))
+	if (!dir)
 		goto rback;
 	debugfs_create_file("regs", S_IRUGO, dir, ssi, &ssi_gdd_regs_fops);
 
@@ -163,7 +163,7 @@ static int __init ssi_debug_add_ctrl(struct hsi_controller *ssi)
 rback:
 	debugfs_remove_recursive(omap_ssi->dir);
 
-	return PTR_ERR(dir);
+	return -ENOMEM;
 }
 
 static void ssi_debug_remove_ctrl(struct hsi_controller *ssi)
@@ -353,12 +353,12 @@ static int __init ssi_add_controller(struct hsi_controller *ssi,
 	err = ssi_get_iomem(pd, "gdd", &omap_ssi->gdd, NULL);
 	if (err < 0)
 		goto out_err;
-	omap_ssi->gdd_irq = platform_get_irq_byname(pd, "gdd_mpu");
-	if (omap_ssi->gdd_irq < 0) {
+	err = platform_get_irq_byname(pd, "gdd_mpu");
+	if (err < 0) {
 		dev_err(&pd->dev, "GDD IRQ resource missing\n");
-		err = omap_ssi->gdd_irq;
 		goto out_err;
 	}
+	omap_ssi->gdd_irq = err;
 	tasklet_init(&omap_ssi->gdd_tasklet, ssi_gdd_tasklet,
 							(unsigned long)ssi);
 	err = devm_request_irq(&ssi->device, omap_ssi->gdd_irq, ssi_gdd_isr,
@@ -555,7 +555,7 @@ static int __exit ssi_remove(struct platform_device *pd)
 	return 0;
 }
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 static int omap_ssi_runtime_suspend(struct device *dev)
 {
 	struct hsi_controller *ssi = dev_get_drvdata(dev);
@@ -610,7 +610,6 @@ static struct platform_driver ssi_pdriver = {
 	.remove	= __exit_p(ssi_remove),
 	.driver	= {
 		.name	= "omap_ssi",
-		.owner	= THIS_MODULE,
 		.pm     = DEV_PM_OPS,
 		.of_match_table = omap_ssi_of_match,
 	},

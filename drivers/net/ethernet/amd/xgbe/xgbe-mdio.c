@@ -116,14 +116,12 @@
 
 #include <linux/module.h>
 #include <linux/kmod.h>
-#include <linux/spinlock.h>
 #include <linux/mdio.h>
 #include <linux/phy.h>
 #include <linux/of.h>
 
 #include "xgbe.h"
 #include "xgbe-common.h"
-
 
 static int xgbe_mdio_read(struct mii_bus *mii, int prtad, int mmd_reg)
 {
@@ -156,82 +154,6 @@ static int xgbe_mdio_write(struct mii_bus *mii, int prtad, int mmd_reg,
 	DBGPR_MDIO("<--xgbe_mdio_write\n");
 
 	return 0;
-}
-
-static void xgbe_adjust_link(struct net_device *netdev)
-{
-	struct xgbe_prv_data *pdata = netdev_priv(netdev);
-	struct xgbe_hw_if *hw_if = &pdata->hw_if;
-	struct phy_device *phydev = pdata->phydev;
-	unsigned long flags;
-	int new_state = 0;
-
-	if (phydev == NULL)
-		return;
-
-	DBGPR_MDIO("-->xgbe_adjust_link: address=%d, newlink=%d, curlink=%d\n",
-		   phydev->addr, phydev->link, pdata->phy_link);
-
-	spin_lock_irqsave(&pdata->lock, flags);
-
-	if (phydev->link) {
-		/* Flow control support */
-		if (pdata->pause_autoneg) {
-			if (phydev->pause || phydev->asym_pause) {
-				pdata->tx_pause = 1;
-				pdata->rx_pause = 1;
-			} else {
-				pdata->tx_pause = 0;
-				pdata->rx_pause = 0;
-			}
-		}
-
-		if (pdata->tx_pause != pdata->phy_tx_pause) {
-			hw_if->config_tx_flow_control(pdata);
-			pdata->phy_tx_pause = pdata->tx_pause;
-		}
-
-		if (pdata->rx_pause != pdata->phy_rx_pause) {
-			hw_if->config_rx_flow_control(pdata);
-			pdata->phy_rx_pause = pdata->rx_pause;
-		}
-
-		/* Speed support */
-		if (phydev->speed != pdata->phy_speed) {
-			new_state = 1;
-
-			switch (phydev->speed) {
-			case SPEED_10000:
-				hw_if->set_xgmii_speed(pdata);
-				break;
-
-			case SPEED_2500:
-				hw_if->set_gmii_2500_speed(pdata);
-				break;
-
-			case SPEED_1000:
-				hw_if->set_gmii_speed(pdata);
-				break;
-			}
-			pdata->phy_speed = phydev->speed;
-		}
-
-		if (phydev->link != pdata->phy_link) {
-			new_state = 1;
-			pdata->phy_link = 1;
-		}
-	} else if (pdata->phy_link) {
-		new_state = 1;
-		pdata->phy_link = 0;
-		pdata->phy_speed = SPEED_UNKNOWN;
-	}
-
-	if (new_state)
-		phy_print_status(phydev);
-
-	spin_unlock_irqrestore(&pdata->lock, flags);
-
-	DBGPR_MDIO("<--xgbe_adjust_link\n");
 }
 
 void xgbe_dump_phy_registers(struct xgbe_prv_data *pdata)
@@ -283,27 +205,16 @@ void xgbe_dump_phy_registers(struct xgbe_prv_data *pdata)
 
 int xgbe_mdio_register(struct xgbe_prv_data *pdata)
 {
-	struct net_device *netdev = pdata->netdev;
-	struct device_node *phy_node;
 	struct mii_bus *mii;
 	struct phy_device *phydev;
 	int ret = 0;
 
 	DBGPR("-->xgbe_mdio_register\n");
 
-	/* Retrieve the phy-handle */
-	phy_node = of_parse_phandle(pdata->dev->of_node, "phy-handle", 0);
-	if (!phy_node) {
-		dev_err(pdata->dev, "unable to parse phy-handle\n");
-		return -EINVAL;
-	}
-
-	/* Register with the MDIO bus */
 	mii = mdiobus_alloc();
-	if (mii == NULL) {
+	if (!mii) {
 		dev_err(pdata->dev, "mdiobus_alloc failed\n");
-		ret = -ENOMEM;
-		goto err_node_get;
+		return -ENOMEM;
 	}
 
 	/* Register on the MDIO bus (don't probe any PHYs) */
@@ -332,18 +243,19 @@ int xgbe_mdio_register(struct xgbe_prv_data *pdata)
 	request_module(MDIO_MODULE_PREFIX MDIO_ID_FMT,
 		       MDIO_ID_ARGS(phydev->c45_ids.device_ids[MDIO_MMD_PCS]));
 
-	of_node_get(phy_node);
-	phydev->dev.of_node = phy_node;
 	ret = phy_device_register(phydev);
 	if (ret) {
 		dev_err(pdata->dev, "phy_device_register failed\n");
-		of_node_put(phy_node);
+		goto err_phy_device;
+	}
+	if (!phydev->dev.driver) {
+		dev_err(pdata->dev, "phy driver probe failed\n");
+		ret = -EIO;
 		goto err_phy_device;
 	}
 
 	/* Add a reference to the PHY driver so it can't be unloaded */
-	pdata->phy_module = phydev->dev.driver ?
-			    phydev->dev.driver->owner : NULL;
+	pdata->phy_module = phydev->dev.driver->owner;
 	if (!try_module_get(pdata->phy_module)) {
 		dev_err(pdata->dev, "try_module_get failed\n");
 		ret = -EIO;
@@ -353,32 +265,8 @@ int xgbe_mdio_register(struct xgbe_prv_data *pdata)
 	pdata->mii = mii;
 	pdata->mdio_mmd = MDIO_MMD_PCS;
 
-	pdata->phy_link = -1;
-	pdata->phy_speed = SPEED_UNKNOWN;
-	pdata->phy_tx_pause = pdata->tx_pause;
-	pdata->phy_rx_pause = pdata->rx_pause;
-
-	ret = phy_connect_direct(netdev, phydev, &xgbe_adjust_link,
-				 pdata->phy_mode);
-	if (ret) {
-		netdev_err(netdev, "phy_connect_direct failed\n");
-		goto err_phy_device;
-	}
-
-	if (!phydev->drv || (phydev->drv->phy_id == 0)) {
-		netdev_err(netdev, "phy_id not valid\n");
-		ret = -ENODEV;
-		goto err_phy_connect;
-	}
-	DBGPR("  phy_connect_direct succeeded for PHY %s, link=%d\n",
-	      dev_name(&phydev->dev), phydev->link);
-
 	phydev->autoneg = pdata->default_autoneg;
 	if (phydev->autoneg == AUTONEG_DISABLE) {
-		/* Add settings needed to force speed */
-		phydev->supported |= SUPPORTED_1000baseT_Full;
-		phydev->supported |= SUPPORTED_10000baseT_Full;
-
 		phydev->speed = pdata->default_speed;
 		phydev->duplex = DUPLEX_FULL;
 
@@ -387,16 +275,11 @@ int xgbe_mdio_register(struct xgbe_prv_data *pdata)
 
 	pdata->phydev = phydev;
 
-	of_node_put(phy_node);
-
 	DBGPHY_REGS(pdata);
 
 	DBGPR("<--xgbe_mdio_register\n");
 
 	return 0;
-
-err_phy_connect:
-	phy_disconnect(phydev);
 
 err_phy_device:
 	phy_device_free(phydev);
@@ -407,9 +290,6 @@ err_mdiobus_register:
 err_mdiobus_alloc:
 	mdiobus_free(mii);
 
-err_node_get:
-	of_node_put(phy_node);
-
 	return ret;
 }
 
@@ -417,7 +297,6 @@ void xgbe_mdio_unregister(struct xgbe_prv_data *pdata)
 {
 	DBGPR("-->xgbe_mdio_unregister\n");
 
-	phy_disconnect(pdata->phydev);
 	pdata->phydev = NULL;
 
 	module_put(pdata->phy_module);

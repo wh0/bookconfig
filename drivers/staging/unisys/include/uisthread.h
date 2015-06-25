@@ -19,20 +19,16 @@
 /* Unisys thread utilities header                                            */
 /*****************************************************************************/
 
-
 #ifndef __UISTHREAD_H__
 #define __UISTHREAD_H__
-
 
 #include "linux/completion.h"
 
 struct uisthread_info {
 	struct task_struct *task;
 	int id;
-	int should_stop;
 	struct completion has_stopped;
 };
-
 
 /* returns 0 for failure, 1 for success */
 int uisthread_start(

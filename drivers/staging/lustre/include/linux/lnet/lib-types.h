@@ -42,11 +42,11 @@
 #ifndef __LNET_LIB_TYPES_H__
 #define __LNET_LIB_TYPES_H__
 
-#include <linux/lnet/linux/lib-types.h>
+#include "linux/lib-types.h"
 
-#include <linux/libcfs/libcfs.h>
+#include "../libcfs/libcfs.h"
 #include <linux/list.h>
-#include <linux/lnet/types.h>
+#include "types.h"
 
 #define WIRE_ATTR       __attribute__((packed))
 
@@ -156,7 +156,6 @@ typedef struct {
  * "stub" reply using their current protocol */
 #define LNET_PROTO_MAGIC		    0x45726963 /* ! */
 
-
 #define LNET_PROTO_TCP_VERSION_MAJOR	1
 #define LNET_PROTO_TCP_VERSION_MINOR	0
 
@@ -218,13 +217,12 @@ typedef struct lnet_msg {
 	unsigned int	  msg_wanted;
 	unsigned int	  msg_offset;
 	unsigned int	  msg_niov;
-	struct iovec	 *msg_iov;
+	struct kvec	 *msg_iov;
 	lnet_kiov_t	  *msg_kiov;
 
 	lnet_event_t	  msg_ev;
 	lnet_hdr_t	    msg_hdr;
 } lnet_msg_t;
-
 
 typedef struct lnet_libhandle {
 	struct list_head	    lh_hash_chain;
@@ -273,13 +271,14 @@ typedef struct lnet_libmd {
 	lnet_eq_t	    *md_eq;
 	unsigned int	  md_niov;		/* # frags */
 	union {
-		struct iovec  iov[LNET_MAX_IOV];
+		struct kvec   iov[LNET_MAX_IOV];
 		lnet_kiov_t   kiov[LNET_MAX_IOV];
 	} md_iov;
 } lnet_libmd_t;
 
 #define LNET_MD_FLAG_ZOMBIE	   (1 << 0)
 #define LNET_MD_FLAG_AUTO_UNLINK      (1 << 1)
+#define LNET_MD_FLAG_ABORTED	 (1 << 2)
 
 #ifdef LNET_USE_LIB_FREELIST
 typedef struct {
@@ -347,7 +346,7 @@ typedef struct lnet_lnd {
 	 * credit if the LND does flow control. */
 	int (*lnd_recv)(struct lnet_ni *ni, void *private, lnet_msg_t *msg,
 			int delayed, unsigned int niov,
-			struct iovec *iov, lnet_kiov_t *kiov,
+			struct kvec *iov, lnet_kiov_t *kiov,
 			unsigned int offset, unsigned int mlen, unsigned int rlen);
 
 	/* lnet_parse() has had to delay processing of this message
@@ -363,10 +362,10 @@ typedef struct lnet_lnd {
 	void (*lnd_notify)(struct lnet_ni *ni, lnet_nid_t peer, int alive);
 
 	/* query of peer aliveness */
-	void (*lnd_query)(struct lnet_ni *ni, lnet_nid_t peer, cfs_time_t *when);
+	void (*lnd_query)(struct lnet_ni *ni, lnet_nid_t peer, unsigned long *when);
 
 	/* accept a new connection */
-	int (*lnd_accept)(struct lnet_ni *ni, socket_t *sock);
+	int (*lnd_accept)(struct lnet_ni *ni, struct socket *sock);
 
 } lnd_t;
 
@@ -458,11 +457,11 @@ typedef struct lnet_peer {
 	unsigned int      lp_ping_notsent;      /* SEND event outstanding from ping */
 	int	       lp_alive_count;       /* # times router went dead<->alive */
 	long	      lp_txqnob;	    /* bytes queued for sending */
-	cfs_time_t	lp_timestamp;	 /* time of last aliveness news */
-	cfs_time_t	lp_ping_timestamp;    /* time of last ping attempt */
-	cfs_time_t	lp_ping_deadline;     /* != 0 if ping reply expected */
-	cfs_time_t	lp_last_alive;	/* when I was last alive */
-	cfs_time_t	lp_last_query;	/* when lp_ni was queried last time */
+	unsigned long	lp_timestamp;	 /* time of last aliveness news */
+	unsigned long	lp_ping_timestamp;    /* time of last ping attempt */
+	unsigned long	lp_ping_deadline;     /* != 0 if ping reply expected */
+	unsigned long	lp_last_alive;	/* when I was last alive */
+	unsigned long	lp_last_query;	/* when lp_ni was queried last time */
 	lnet_ni_t	*lp_ni;		/* interface peer is on */
 	lnet_nid_t	lp_nid;	       /* peer's NID */
 	int	       lp_refcount;	  /* # refs */
@@ -623,7 +622,7 @@ typedef struct lnet_portal {
 	/* Match table for each CPT */
 	struct lnet_match_table	**ptl_mtables;
 	/* spread rotor of incoming "PUT" */
-	int			ptl_rotor;
+	unsigned int		ptl_rotor;
 	/* # active entries for this portal */
 	int		     ptl_mt_nmaps;
 	/* array of active entries' cpu-partition-id */

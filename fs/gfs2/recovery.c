@@ -439,7 +439,7 @@ static void gfs2_recovery_done(struct gfs2_sbd *sdp, unsigned int jid,
 
         ls->ls_recover_jid_done = jid;
         ls->ls_recover_jid_status = message;
-	sprintf(env_jid, "JID=%d", jid);
+	sprintf(env_jid, "JID=%u", jid);
 	sprintf(env_status, "RECOVERY=%s",
 		message == LM_RD_SUCCESS ? "Done" : "Failed");
         kobject_uevent_env(&sdp->sd_kobj, KOBJ_CHANGE, envp);
@@ -591,12 +591,6 @@ done:
 	wake_up_bit(&jd->jd_flags, JDF_RECOVERY);
 }
 
-static int gfs2_recovery_wait(void *word)
-{
-	schedule();
-	return 0;
-}
-
 int gfs2_recover_journal(struct gfs2_jdesc *jd, bool wait)
 {
 	int rv;
@@ -609,7 +603,7 @@ int gfs2_recover_journal(struct gfs2_jdesc *jd, bool wait)
 	BUG_ON(!rv);
 
 	if (wait)
-		wait_on_bit(&jd->jd_flags, JDF_RECOVERY, gfs2_recovery_wait,
+		wait_on_bit(&jd->jd_flags, JDF_RECOVERY,
 			    TASK_UNINTERRUPTIBLE);
 
 	return wait ? jd->jd_recover_error : 0;

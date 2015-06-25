@@ -69,10 +69,8 @@ static void ehci_handover_companion_ports(struct ehci_hcd *ehci)
 		if (test_bit(port, &ehci->owned_ports)) {
 			reg = &ehci->regs->port_status[port];
 			status = ehci_readl(ehci, reg) & ~PORT_RWC_BITS;
-			if (!(status & PORT_POWER)) {
-				status |= PORT_POWER;
-				ehci_writel(ehci, status, reg);
-			}
+			if (!(status & PORT_POWER))
+				ehci_port_power(ehci, port, true);
 		}
 	}
 
@@ -473,10 +471,13 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 		ehci_writel(ehci, temp, &ehci->regs->port_status [i]);
 	}
 
-	/* msleep for 20ms only if code is trying to resume port */
+	/*
+	 * msleep for USB_RESUME_TIMEOUT ms only if code is trying to resume
+	 * port
+	 */
 	if (resume_needed) {
 		spin_unlock_irq(&ehci->lock);
-		msleep(20);
+		msleep(USB_RESUME_TIMEOUT);
 		spin_lock_irq(&ehci->lock);
 		if (ehci->shutdown)
 			goto shutdown;
@@ -656,7 +657,7 @@ ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 
 		/*
 		 * Return status information even for ports with OWNER set.
-		 * Otherwise khubd wouldn't see the disconnect event when a
+		 * Otherwise hub_wq wouldn't see the disconnect event when a
 		 * high-speed device is switched over to the companion
 		 * controller by the user.
 		 */
@@ -690,7 +691,7 @@ ehci_hub_descriptor (
 	int		ports = HCS_N_PORTS (ehci->hcs_params);
 	u16		temp;
 
-	desc->bDescriptorType = 0x29;
+	desc->bDescriptorType = USB_DT_HUB;
 	desc->bPwrOn2PwrGood = 10;	/* ehci 1.0, 2.3.9 says 20ms max */
 	desc->bHubContrCurrent = 0;
 
@@ -702,15 +703,15 @@ ehci_hub_descriptor (
 	memset(&desc->u.hs.DeviceRemovable[0], 0, temp);
 	memset(&desc->u.hs.DeviceRemovable[temp], 0xff, temp);
 
-	temp = 0x0008;			/* per-port overcurrent reporting */
+	temp = HUB_CHAR_INDV_PORT_OCPM;	/* per-port overcurrent reporting */
 	if (HCS_PPC (ehci->hcs_params))
-		temp |= 0x0001;		/* per-port power control */
+		temp |= HUB_CHAR_INDV_PORT_LPSM; /* per-port power control */
 	else
-		temp |= 0x0002;		/* no power switching */
+		temp |= HUB_CHAR_NO_LPSM; /* no power switching */
 #if 0
 // re-enable when we support USB_PORT_FEAT_INDICATOR below.
 	if (HCS_INDICATOR (ehci->hcs_params))
-		temp |= 0x0080;		/* per-port indicators (LEDs) */
+		temp |= HUB_CHAR_PORTIND; /* per-port indicators (LEDs) */
 #endif
 	desc->wHubCharacteristics = cpu_to_le16(temp);
 }
@@ -902,7 +903,7 @@ int ehci_hub_control(
 
 		/*
 		 * Even if OWNER is set, so the port is owned by the
-		 * companion controller, khubd needs to be able to clear
+		 * companion controller, hub_wq needs to be able to clear
 		 * the port-change status bits (especially
 		 * USB_PORT_STAT_C_CONNECTION).
 		 */
@@ -922,7 +923,7 @@ int ehci_hub_control(
 #ifdef CONFIG_USB_OTG
 			if ((hcd->self.otg_port == (wIndex + 1))
 			    && hcd->self.b_hnp_enable) {
-				otg_start_hnp(hcd->phy->otg);
+				otg_start_hnp(hcd->usb_phy->otg);
 				break;
 			}
 #endif
@@ -944,7 +945,7 @@ int ehci_hub_control(
 			temp &= ~PORT_WAKE_BITS;
 			ehci_writel(ehci, temp | PORT_RESUME, status_reg);
 			ehci->reset_done[wIndex] = jiffies
-					+ msecs_to_jiffies(20);
+					+ msecs_to_jiffies(USB_RESUME_TIMEOUT);
 			set_bit(wIndex, &ehci->resuming_ports);
 			usb_hcd_start_port_resume(&hcd->self, wIndex);
 			break;
@@ -952,9 +953,11 @@ int ehci_hub_control(
 			clear_bit(wIndex, &ehci->port_c_suspend);
 			break;
 		case USB_PORT_FEAT_POWER:
-			if (HCS_PPC (ehci->hcs_params))
-				ehci_writel(ehci, temp & ~PORT_POWER,
-						status_reg);
+			if (HCS_PPC(ehci->hcs_params)) {
+				spin_unlock_irqrestore(&ehci->lock, flags);
+				ehci_port_power(ehci, wIndex, false);
+				spin_lock_irqsave(&ehci->lock, flags);
+			}
 			break;
 		case USB_PORT_FEAT_C_CONNECTION:
 			ehci_writel(ehci, temp | PORT_CSC, status_reg);
@@ -1000,13 +1003,13 @@ int ehci_hub_control(
 			 * However, not all EHCI implementations do this
 			 * automatically, even if they _do_ support per-port
 			 * power switching; they're allowed to just limit the
-			 * current.  khubd will turn the power back on.
+			 * current.  hub_wq will turn the power back on.
 			 */
 			if (((temp & PORT_OC) || (ehci->need_oc_pp_cycle))
 					&& HCS_PPC(ehci->hcs_params)) {
-				ehci_writel(ehci,
-					temp & ~(PORT_RWC_BITS | PORT_POWER),
-					status_reg);
+				spin_unlock_irqrestore(&ehci->lock, flags);
+				ehci_port_power(ehci, wIndex, false);
+				spin_lock_irqsave(&ehci->lock, flags);
 				temp = ehci_readl(ehci, status_reg);
 			}
 		}
@@ -1085,7 +1088,7 @@ int ehci_hub_control(
 		}
 
 		/*
-		 * Even if OWNER is set, there's no harm letting khubd
+		 * Even if OWNER is set, there's no harm letting hub_wq
 		 * see the wPortStatus values (they should all be 0 except
 		 * for PORT_POWER anyway).
 		 */
@@ -1187,9 +1190,11 @@ int ehci_hub_control(
 			set_bit(wIndex, &ehci->suspended_ports);
 			break;
 		case USB_PORT_FEAT_POWER:
-			if (HCS_PPC (ehci->hcs_params))
-				ehci_writel(ehci, temp | PORT_POWER,
-						status_reg);
+			if (HCS_PPC(ehci->hcs_params)) {
+				spin_unlock_irqrestore(&ehci->lock, flags);
+				ehci_port_power(ehci, wIndex, true);
+				spin_lock_irqsave(&ehci->lock, flags);
+			}
 			break;
 		case USB_PORT_FEAT_RESET:
 			if (temp & (PORT_SUSPEND|PORT_RESUME))
@@ -1296,4 +1301,21 @@ static int ehci_port_handed_over(struct usb_hcd *hcd, int portnum)
 		return 0;
 	reg = &ehci->regs->port_status[portnum - 1];
 	return ehci_readl(ehci, reg) & PORT_OWNER;
+}
+
+static int ehci_port_power(struct ehci_hcd *ehci, int portnum, bool enable)
+{
+	struct usb_hcd *hcd = ehci_to_hcd(ehci);
+	u32 __iomem *status_reg = &ehci->regs->port_status[portnum];
+	u32 temp = ehci_readl(ehci, status_reg) & ~PORT_RWC_BITS;
+
+	if (enable)
+		ehci_writel(ehci, temp | PORT_POWER, status_reg);
+	else
+		ehci_writel(ehci, temp & ~PORT_POWER, status_reg);
+
+	if (hcd->driver->port_power)
+		hcd->driver->port_power(hcd, portnum, enable);
+
+	return 0;
 }

@@ -171,9 +171,6 @@ static void mtd_blktrans_work(struct work_struct *work)
 		background_done = 0;
 	}
 
-	if (req)
-		__blk_end_request_all(req, -EIO);
-
 	spin_unlock_irq(rq->queue_lock);
 }
 
@@ -417,6 +414,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	blk_queue_logical_block_size(new->rq, tr->blksize);
 
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, new->rq);
+	queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, new->rq);
 
 	if (tr->discard) {
 		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, new->rq);

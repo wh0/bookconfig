@@ -39,6 +39,7 @@
 
 #include "common.h"
 #include "devices-imx35.h"
+#include "ehci.h"
 #include "eukrea-baseboards.h"
 #include "hardware.h"
 #include "iomux-mx35.h"
@@ -74,7 +75,7 @@ static struct i2c_board_info eukrea_cpuimx35_i2c_devices[] = {
 	},
 };
 
-static iomux_v3_cfg_t eukrea_cpuimx35_pads[] = {
+static const iomux_v3_cfg_t eukrea_cpuimx35_pads[] __initconst = {
 	/* UART1 */
 	MX35_PAD_CTS1__UART1_CTS,
 	MX35_PAD_RTS1__UART1_RTS,

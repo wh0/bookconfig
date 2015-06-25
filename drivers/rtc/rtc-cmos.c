@@ -28,6 +28,9 @@
  * interrupts disabled, holding the global rtc_lock, to exclude those
  * other drivers and utilities on correctly configured systems.
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -385,8 +388,7 @@ static bool alarm_disable_quirk;
 static int __init set_alarm_disable_quirk(const struct dmi_system_id *id)
 {
 	alarm_disable_quirk = true;
-	pr_info("rtc-cmos: BIOS has alarm-disable quirk. ");
-	pr_info("RTC alarms disabled\n");
+	pr_info("BIOS has alarm-disable quirk - RTC alarms disabled\n");
 	return 0;
 }
 
@@ -459,23 +461,25 @@ static int cmos_procfs(struct device *dev, struct seq_file *seq)
 	/* NOTE:  at least ICH6 reports battery status using a different
 	 * (non-RTC) bit; and SQWE is ignored on many current systems.
 	 */
-	return seq_printf(seq,
-			"periodic_IRQ\t: %s\n"
-			"update_IRQ\t: %s\n"
-			"HPET_emulated\t: %s\n"
-			// "square_wave\t: %s\n"
-			"BCD\t\t: %s\n"
-			"DST_enable\t: %s\n"
-			"periodic_freq\t: %d\n"
-			"batt_status\t: %s\n",
-			(rtc_control & RTC_PIE) ? "yes" : "no",
-			(rtc_control & RTC_UIE) ? "yes" : "no",
-			is_hpet_enabled() ? "yes" : "no",
-			// (rtc_control & RTC_SQWE) ? "yes" : "no",
-			(rtc_control & RTC_DM_BINARY) ? "no" : "yes",
-			(rtc_control & RTC_DST_EN) ? "yes" : "no",
-			cmos->rtc->irq_freq,
-			(valid & RTC_VRT) ? "okay" : "dead");
+	seq_printf(seq,
+		   "periodic_IRQ\t: %s\n"
+		   "update_IRQ\t: %s\n"
+		   "HPET_emulated\t: %s\n"
+		   // "square_wave\t: %s\n"
+		   "BCD\t\t: %s\n"
+		   "DST_enable\t: %s\n"
+		   "periodic_freq\t: %d\n"
+		   "batt_status\t: %s\n",
+		   (rtc_control & RTC_PIE) ? "yes" : "no",
+		   (rtc_control & RTC_UIE) ? "yes" : "no",
+		   is_hpet_enabled() ? "yes" : "no",
+		   // (rtc_control & RTC_SQWE) ? "yes" : "no",
+		   (rtc_control & RTC_DM_BINARY) ? "no" : "yes",
+		   (rtc_control & RTC_DST_EN) ? "yes" : "no",
+		   cmos->rtc->irq_freq,
+		   (valid & RTC_VRT) ? "okay" : "dead");
+
+	return 0;
 }
 
 #else
@@ -856,7 +860,7 @@ static void __exit cmos_do_remove(struct device *dev)
 	cmos->dev = NULL;
 }
 
-#ifdef	CONFIG_PM_SLEEP
+#ifdef CONFIG_PM
 
 static int cmos_suspend(struct device *dev)
 {
@@ -907,6 +911,8 @@ static inline int cmos_poweroff(struct device *dev)
 	return cmos_suspend(dev);
 }
 
+#ifdef	CONFIG_PM_SLEEP
+
 static int cmos_resume(struct device *dev)
 {
 	struct cmos_rtc	*cmos = dev_get_drvdata(dev);
@@ -954,6 +960,7 @@ static int cmos_resume(struct device *dev)
 	return 0;
 }
 
+#endif
 #else
 
 static inline int cmos_poweroff(struct device *dev)

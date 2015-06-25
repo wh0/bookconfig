@@ -38,6 +38,7 @@
 #include <drm/drmP.h>
 #include "radeon.h"
 #include "radeon_asic.h"
+#include "radeon_audio.h"
 #include "atom.h"
 #include "rs600d.h"
 
@@ -555,7 +556,6 @@ static int rs600_gart_enable(struct radeon_device *rdev)
 	r = radeon_gart_table_vram_pin(rdev);
 	if (r)
 		return r;
-	radeon_gart_restore(rdev);
 	/* Enable bus master */
 	tmp = RREG32(RADEON_BUS_CNTL) & ~RS600_BUS_MASTER_DIS;
 	WREG32(RADEON_BUS_CNTL, tmp);
@@ -626,16 +626,26 @@ static void rs600_gart_fini(struct radeon_device *rdev)
 	radeon_gart_table_vram_free(rdev);
 }
 
-void rs600_gart_set_page(struct radeon_device *rdev, unsigned i, uint64_t addr)
+uint64_t rs600_gart_get_page_entry(uint64_t addr, uint32_t flags)
+{
+	addr = addr & 0xFFFFFFFFFFFFF000ULL;
+	addr |= R600_PTE_SYSTEM;
+	if (flags & RADEON_GART_PAGE_VALID)
+		addr |= R600_PTE_VALID;
+	if (flags & RADEON_GART_PAGE_READ)
+		addr |= R600_PTE_READABLE;
+	if (flags & RADEON_GART_PAGE_WRITE)
+		addr |= R600_PTE_WRITEABLE;
+	if (flags & RADEON_GART_PAGE_SNOOP)
+		addr |= R600_PTE_SNOOPED;
+	return addr;
+}
+
+void rs600_gart_set_page(struct radeon_device *rdev, unsigned i,
+			 uint64_t entry)
 {
 	void __iomem *ptr = (void *)rdev->gart.ptr;
-
-	addr = addr & 0xFFFFFFFFFFFFF000ULL;
-	if (addr == rdev->dummy_page.addr)
-		addr |= R600_PTE_SYSTEM | R600_PTE_SNOOPED;
-	else
-		addr |= R600_PTE_GART;
-	writeq(addr, ptr + (i * 8));
+	writeq(entry, ptr + (i * 8));
 }
 
 int rs600_irq_set(struct radeon_device *rdev)
@@ -684,6 +694,10 @@ int rs600_irq_set(struct radeon_device *rdev)
 	WREG32(R_007D18_DC_HOT_PLUG_DETECT2_INT_CONTROL, hpd2);
 	if (ASIC_IS_DCE2(rdev))
 		WREG32(R_007408_HDMI0_AUDIO_PACKET_CONTROL, hdmi0);
+
+	/* posting read */
+	RREG32(R_000040_GEN_INT_CNTL);
+
 	return 0;
 }
 
@@ -874,6 +888,9 @@ void rs600_bandwidth_update(struct radeon_device *rdev)
 	u32 d1mode_priority_a_cnt, d2mode_priority_a_cnt;
 	/* FIXME: implement full support */
 
+	if (!rdev->mode_info.mode_config_initialized)
+		return;
+
 	radeon_update_display_priority(rdev);
 
 	if (rdev->mode_info.crtcs[0]->base.enabled)
@@ -1004,7 +1021,7 @@ static int rs600_startup(struct radeon_device *rdev)
 		return r;
 	}
 
-	r = r600_audio_init(rdev);
+	r = radeon_audio_init(rdev);
 	if (r) {
 		dev_err(rdev->dev, "failed initializing audio\n");
 		return r;
@@ -1045,7 +1062,7 @@ int rs600_resume(struct radeon_device *rdev)
 int rs600_suspend(struct radeon_device *rdev)
 {
 	radeon_pm_suspend(rdev);
-	r600_audio_fini(rdev);
+	radeon_audio_fini(rdev);
 	r100_cp_disable(rdev);
 	radeon_wb_disable(rdev);
 	rs600_irq_disable(rdev);
@@ -1056,7 +1073,7 @@ int rs600_suspend(struct radeon_device *rdev)
 void rs600_fini(struct radeon_device *rdev)
 {
 	radeon_pm_fini(rdev);
-	r600_audio_fini(rdev);
+	radeon_audio_fini(rdev);
 	r100_cp_fini(rdev);
 	radeon_wb_fini(rdev);
 	radeon_ib_pool_fini(rdev);

@@ -44,7 +44,7 @@
 #define VIBRACTRL_MEMBER(reg) ((reg == TWL6040_REG_VIBCTLL) ? 0 : 1)
 #define TWL6040_NUM_SUPPLIES	(2)
 
-static struct reg_default twl6040_defaults[] = {
+static const struct reg_default twl6040_defaults[] = {
 	{ 0x01, 0x4B }, /* REG_ASICID	(ro) */
 	{ 0x02, 0x00 }, /* REG_ASICREV	(ro) */
 	{ 0x03, 0x00 }, /* REG_INTID	*/
@@ -580,7 +580,7 @@ static bool twl6040_writeable_reg(struct device *dev, unsigned int reg)
 	}
 }
 
-static struct regmap_config twl6040_regmap_config = {
+static const struct regmap_config twl6040_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
 
@@ -679,6 +679,7 @@ static int twl6040_probe(struct i2c_client *client,
 	if (twl6040->rev < 0) {
 		dev_err(&client->dev, "Failed to read revision register: %d\n",
 			twl6040->rev);
+		ret = twl6040->rev;
 		goto gpio_err;
 	}
 
@@ -700,7 +701,7 @@ static int twl6040_probe(struct i2c_client *client,
 	}
 
 	ret = regmap_add_irq_chip(twl6040->regmap, twl6040->irq, IRQF_ONESHOT,
-				  0, &twl6040_irq_chip,&twl6040->irq_data);
+				  0, &twl6040_irq_chip, &twl6040->irq_data);
 	if (ret < 0)
 		goto gpio_err;
 
@@ -813,4 +814,3 @@ MODULE_DESCRIPTION("TWL6040 MFD");
 MODULE_AUTHOR("Misael Lopez Cruz <misael.lopez@ti.com>");
 MODULE_AUTHOR("Jorge Eduardo Candelaria <jorge.candelaria@ti.com>");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:twl6040");

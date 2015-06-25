@@ -38,7 +38,8 @@ config ACER_WMI
 
 config ACERHDF
 	tristate "Acer Aspire One temperature and fan driver"
-	depends on THERMAL && ACPI
+	depends on ACPI && THERMAL
+	select THERMAL_GOV_BANG_BANG
 	---help---
 	  This is a driver for Acer Aspire One netbooks. It allows to access
 	  the temperature sensor and to control the fan.
@@ -128,10 +129,10 @@ config DELL_WMI_AIO
 	  be called dell-wmi-aio.
 
 config DELL_SMO8800
-	tristate "Dell Latitude freefall driver (ACPI SMO8800/SMO8810)"
+	tristate "Dell Latitude freefall driver (ACPI SMO88XX)"
 	depends on ACPI
 	---help---
-	  Say Y here if you want to support SMO8800/SMO8810 freefall device
+	  Say Y here if you want to support SMO88XX freefall devices
 	  on Dell Latitude laptops.
 
 	  To compile this driver as a module, choose M here: the module will
@@ -202,6 +203,7 @@ config TC1100_WMI
 config HP_ACCEL
 	tristate "HP laptop accelerometer"
 	depends on INPUT && ACPI
+	depends on SERIO_I8042
 	select SENSORS_LIS3LV02D
 	select NEW_LEDS
 	select LEDS_CLASS
@@ -540,7 +542,7 @@ config ASUS_NB_WMI
 	  This is a driver for newer Asus notebooks. It adds extra features
 	  like wireless radio and bluetooth control, leds, hotkeys, backlight...
 
-	  For more informations, see
+	  For more information, see
 	  <file:Documentation/ABI/testing/sysfs-platform-asus-wmi>
 
 	  If you have an ACPI-WMI compatible Asus Notebook, say Y or M
@@ -553,7 +555,7 @@ config EEEPC_WMI
 	  This is a driver for newer Eee PC laptops. It adds extra features
 	  like wireless radio and bluetooth control, leds, hotkeys, backlight...
 
-	  For more informations, see
+	  For more information, see
 	  <file:Documentation/ABI/testing/sysfs-platform-asus-wmi>
 
 	  If you have an ACPI-WMI compatible Eee PC laptop (>= 1000), say Y or M
@@ -612,6 +614,7 @@ config ACPI_TOSHIBA
 	depends on INPUT
 	depends on RFKILL || RFKILL = n
 	depends on SERIO_I8042 || SERIO_I8042 = n
+	depends on ACPI_VIDEO || ACPI_VIDEO = n
 	select INPUT_POLLDEV
 	select INPUT_SPARSEKMAP
 	---help---
@@ -651,6 +654,25 @@ config TOSHIBA_BT_RFKILL
 
 	  If you have a modern Toshiba laptop with a Bluetooth and an
 	  RFKill switch (such as the Portege R500), say Y.
+
+config TOSHIBA_HAPS
+	tristate "Toshiba HDD Active Protection Sensor"
+	depends on ACPI
+	---help---
+	  This driver adds support for the built-in accelerometer
+	  found on recent Toshiba laptops equiped with HID TOS620A
+	  device.
+
+	  This driver receives ACPI notify events 0x80 when the sensor
+	  detects a sudden move or a harsh vibration, as well as an
+	  ACPI notify event 0x81 whenever the movement or vibration has
+	  been stabilized.
+
+	  Also provides sysfs entries to get/set the desired protection
+	  level and reseting the HDD protection interface.
+
+	  If you have a recent Toshiba laptop with a built-in accelerometer
+	  device, say Y.
 
 config ACPI_CMPC
 	tristate "CMPC Laptop Extras"
@@ -713,6 +735,31 @@ config INTEL_IPS
 	  along with the CPU frequency and i915 drivers, provides that
 	  functionality.  If in doubt, say Y here; it will only load on
 	  supported platforms.
+
+config INTEL_IMR
+	bool "Intel Isolated Memory Region support"
+	default n
+	depends on X86_INTEL_QUARK && IOSF_MBI
+	---help---
+	  This option provides a means to manipulate Isolated Memory Regions.
+	  IMRs are a set of registers that define read and write access masks
+	  to prohibit certain system agents from accessing memory with 1 KiB
+	  granularity.
+
+	  IMRs make it possible to control read/write access to an address
+	  by hardware agents inside the SoC. Read and write masks can be
+	  defined for:
+		- eSRAM flush
+		- Dirty CPU snoop (write only)
+		- RMU access
+		- PCI Virtual Channel 0/Virtual Channel 1
+		- SMM mode
+		- Non SMM mode
+
+	  Quark contains a set of eight IMR registers and makes use of those
+	  registers during its bootup process.
+
+	  If you are running on a Galileo/Quark say Y here.
 
 config IBM_RTL
 	tristate "Device driver to enable PRTL support"

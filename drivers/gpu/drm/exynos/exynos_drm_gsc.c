@@ -542,9 +542,6 @@ static int gsc_src_set_fmt(struct device *dev, u32 fmt)
 		cfg |= (GSC_IN_CHROMA_ORDER_CBCR |
 			GSC_IN_YUV420_2P);
 		break;
-	case DRM_FORMAT_NV12MT:
-		cfg |= (GSC_IN_TILE_C_16x8 | GSC_IN_TILE_MODE);
-		break;
 	default:
 		dev_err(ippdrv->dev, "inavlid target yuv order 0x%x.\n", fmt);
 		return -EINVAL;
@@ -808,9 +805,6 @@ static int gsc_dst_set_fmt(struct device *dev, u32 fmt)
 	case DRM_FORMAT_NV16:
 		cfg |= (GSC_OUT_CHROMA_ORDER_CBCR |
 			GSC_OUT_YUV420_2P);
-		break;
-	case DRM_FORMAT_NV12MT:
-		cfg |= (GSC_OUT_TILE_C_16x8 | GSC_OUT_TILE_MODE);
 		break;
 	default:
 		dev_err(ippdrv->dev, "inavlid target yuv order 0x%x.\n", fmt);
@@ -1326,8 +1320,7 @@ static irqreturn_t gsc_irq_handler(int irq, void *dev_id)
 			buf_id[EXYNOS_DRM_OPS_SRC];
 		event_work->buf_id[EXYNOS_DRM_OPS_DST] =
 			buf_id[EXYNOS_DRM_OPS_DST];
-		queue_work(ippdrv->event_workq,
-			(struct work_struct *)event_work);
+		queue_work(ippdrv->event_workq, &event_work->work);
 	}
 
 	return IRQ_HANDLED;
@@ -1765,7 +1758,7 @@ static int gsc_resume(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 static int gsc_runtime_suspend(struct device *dev)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);

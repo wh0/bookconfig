@@ -45,14 +45,14 @@ static void reload_slb(struct kvm_vcpu *vcpu)
 		return;
 
 	/* Sanity check */
-	n = min_t(u32, slb->persistent, SLB_MIN_SIZE);
+	n = min_t(u32, be32_to_cpu(slb->persistent), SLB_MIN_SIZE);
 	if ((void *) &slb->save_area[n] > vcpu->arch.slb_shadow.pinned_end)
 		return;
 
 	/* Load up the SLB from that */
 	for (i = 0; i < n; ++i) {
-		unsigned long rb = slb->save_area[i].esid;
-		unsigned long rs = slb->save_area[i].vsid;
+		unsigned long rb = be64_to_cpu(slb->save_area[i].esid);
+		unsigned long rs = be64_to_cpu(slb->save_area[i].vsid);
 
 		rb = (rb & ~0xFFFul) | i;	/* insert entry number */
 		asm volatile("slbmte %0,%1" : : "r" (rs), "r" (rb));
@@ -84,7 +84,7 @@ static long kvmppc_realmode_mc_power7(struct kvm_vcpu *vcpu)
 		}
 		if (dsisr & DSISR_MC_TLB_MULTI) {
 			if (cur_cpu_spec && cur_cpu_spec->flush_tlb)
-				cur_cpu_spec->flush_tlb(TLBIEL_INVAL_SET_LPID);
+				cur_cpu_spec->flush_tlb(TLB_INVAL_SCOPE_LPID);
 			dsisr &= ~DSISR_MC_TLB_MULTI;
 		}
 		/* Any other errors we don't understand? */
@@ -102,7 +102,7 @@ static long kvmppc_realmode_mc_power7(struct kvm_vcpu *vcpu)
 		break;
 	case SRR1_MC_IFETCH_TLBMULTI:
 		if (cur_cpu_spec && cur_cpu_spec->flush_tlb)
-			cur_cpu_spec->flush_tlb(TLBIEL_INVAL_SET_LPID);
+			cur_cpu_spec->flush_tlb(TLB_INVAL_SCOPE_LPID);
 		break;
 	default:
 		handled = 0;
@@ -138,8 +138,5 @@ out:
 
 long kvmppc_realmode_machine_check(struct kvm_vcpu *vcpu)
 {
-	if (cpu_has_feature(CPU_FTR_ARCH_206))
-		return kvmppc_realmode_mc_power7(vcpu);
-
-	return 0;
+	return kvmppc_realmode_mc_power7(vcpu);
 }

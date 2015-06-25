@@ -60,7 +60,6 @@
 #include <plat/cpu.h>
 #include <plat/devs.h>
 #include <plat/gpio-cfg.h>
-#include <plat/pll.h>
 #include <plat/pm.h>
 #include <plat/samsung-time.h>
 
@@ -72,6 +71,10 @@
 #define H1940_PA_LATCH		S3C2410_CS2
 
 #define H1940_LATCH_BIT(x)	(1 << ((x) + 16 - S3C_GPIO_END))
+
+#define S3C24XX_PLL_MDIV_SHIFT         (12)
+#define S3C24XX_PLL_PDIV_SHIFT         (4)
+#define S3C24XX_PLL_SDIV_SHIFT         (0)
 
 static struct map_desc h1940_iodesc[] __initdata = {
 	[0] = {
@@ -356,10 +359,11 @@ static struct platform_device h1940_battery = {
 
 static DEFINE_SPINLOCK(h1940_blink_spin);
 
-int h1940_led_blink_set(unsigned gpio, int state,
+int h1940_led_blink_set(struct gpio_desc *desc, int state,
 	unsigned long *delay_on, unsigned long *delay_off)
 {
 	int blink_gpio, check_gpio1, check_gpio2;
+	int gpio = desc ? desc_to_gpio(desc) : -EINVAL;
 
 	switch (gpio) {
 	case H1940_LATCH_LED_GREEN:
@@ -744,5 +748,4 @@ MACHINE_START(H1940, "IPAQ-H1940")
 	.init_irq	= s3c2410_init_irq,
 	.init_machine	= h1940_init,
 	.init_time	= h1940_init_time,
-	.restart	= s3c2410_restart,
 MACHINE_END

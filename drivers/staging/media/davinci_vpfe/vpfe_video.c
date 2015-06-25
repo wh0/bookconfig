@@ -600,11 +600,11 @@ static int vpfe_querycap(struct file *file, void  *priv,
 	v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev, "vpfe_querycap\n");
 
 	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+		cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	else
-		cap->capabilities = V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_STREAMING;
-	cap->device_caps = cap->capabilities;
-	cap->version = VPFE_CAPTURE_VERSION_CODE;
+		cap->device_caps = V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_STREAMING;
+	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
+			    V4L2_CAP_STREAMING | V4L2_CAP_DEVICE_CAPS;
 	strlcpy(cap->driver, CAPTURE_DRV_NAME, sizeof(cap->driver));
 	strlcpy(cap->bus_info, "VPFE", sizeof(cap->bus_info));
 	strlcpy(cap->card, vpfe_dev->cfg->card_name, sizeof(cap->card));
@@ -1606,7 +1606,6 @@ int vpfe_video_init(struct vpfe_video_device *video, const char *name)
 	if (ret < 0)
 		return ret;
 
-	set_bit(V4L2_FL_USE_FH_PRIO, &video->video_dev.flags);
 	video_set_drvdata(&video->video_dev, video);
 
 	return 0;

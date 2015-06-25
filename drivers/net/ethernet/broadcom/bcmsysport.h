@@ -246,6 +246,15 @@ struct bcm_rsb {
 #define  MIB_RX_CNT_RST			(1 << 0)
 #define  MIB_RUNT_CNT_RST		(1 << 1)
 #define  MIB_TX_CNT_RST			(1 << 2)
+
+#define UMAC_MPD_CTRL			0x620
+#define  MPD_EN				(1 << 0)
+#define  MSEQ_LEN_SHIFT			16
+#define  MSEQ_LEN_MASK			0xff
+#define  PSW_EN				(1 << 27)
+
+#define UMAC_PSW_MS			0x624
+#define UMAC_PSW_LS			0x628
 #define UMAC_MDF_CTRL			0x650
 #define UMAC_MDF_ADDR			0x654
 
@@ -534,7 +543,7 @@ struct bcm_sysport_tx_counters {
 	u32	jbr;		/* RO # of xmited jabber count*/
 	u32	bytes;		/* RO # of xmited byte count */
 	u32	pok;		/* RO # of xmited good pkt */
-	u32	uc;		/* RO (0x0x4f0)# of xmited unitcast pkt */
+	u32	uc;		/* RO (0x4f0) # of xmited unicast pkt */
 };
 
 struct bcm_sysport_mib {
@@ -548,6 +557,9 @@ struct bcm_sysport_mib {
 	u32 rxchk_other_pkt_disc;
 	u32 rbuf_ovflow_cnt;
 	u32 rbuf_err_cnt;
+	u32 alloc_rx_buff_failed;
+	u32 rx_dma_failed;
+	u32 tx_dma_failed;
 };
 
 /* HW maintains a large list of counters */
@@ -558,6 +570,7 @@ enum bcm_sysport_stat_type {
 	BCM_SYSPORT_STAT_RUNT,
 	BCM_SYSPORT_STAT_RXCHK,
 	BCM_SYSPORT_STAT_RBUF,
+	BCM_SYSPORT_STAT_SOFT,
 };
 
 /* Macros to help define ethtool statistics */
@@ -578,6 +591,7 @@ enum bcm_sysport_stat_type {
 #define STAT_MIB_RX(str, m) STAT_MIB(str, m, BCM_SYSPORT_STAT_MIB_RX)
 #define STAT_MIB_TX(str, m) STAT_MIB(str, m, BCM_SYSPORT_STAT_MIB_TX)
 #define STAT_RUNT(str, m) STAT_MIB(str, m, BCM_SYSPORT_STAT_RUNT)
+#define STAT_MIB_SOFT(str, m) STAT_MIB(str, m, BCM_SYSPORT_STAT_SOFT)
 
 #define STAT_RXCHK(str, m, ofs) { \
 	.stat_string = str, \
@@ -642,6 +656,7 @@ struct bcm_sysport_priv {
 	struct platform_device	*pdev;
 	int			irq0;
 	int			irq1;
+	int			wol_irq;
 
 	/* Transmit rings */
 	struct bcm_sysport_tx_ring tx_rings[TDMA_NUM_RINGS];
@@ -664,10 +679,12 @@ struct bcm_sysport_priv {
 	int			old_duplex;
 
 	/* Misc fields */
-	unsigned int		rx_csum_en:1;
+	unsigned int		rx_chk_en:1;
 	unsigned int		tsb_en:1;
 	unsigned int		crc_fwd:1;
 	u16			rev;
+	u32			wolopts;
+	unsigned int		wol_irq_disabled:1;
 
 	/* MIB related fields */
 	struct bcm_sysport_mib	mib;

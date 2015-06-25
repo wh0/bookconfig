@@ -38,7 +38,7 @@
 #include <linux/if_vlan.h>
 #include <linux/jiffies.h>
 
-#include <linux/clocksource.h>
+#include <linux/timecounter.h>
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
 
@@ -75,6 +75,8 @@
 #endif
 #define IXGBE_MAX_RXD			   4096
 #define IXGBE_MIN_RXD			     64
+
+#define IXGBE_ETH_P_LLDP		 0x88CC
 
 /* flow control */
 #define IXGBE_MIN_FCRTL			   0x40
@@ -149,6 +151,7 @@ struct vf_data_storage {
 	u16 tx_rate;
 	u16 vlan_count;
 	u8 spoofchk_enabled;
+	bool rss_query_enabled;
 	unsigned int vf_api;
 };
 
@@ -300,17 +303,17 @@ enum ixgbe_ring_f_enum {
 	RING_F_ARRAY_SIZE      /* must be last in enum set */
 };
 
-#define IXGBE_MAX_RSS_INDICES  16
-#define IXGBE_MAX_VMDQ_INDICES 64
-#define IXGBE_MAX_FDIR_INDICES 63	/* based on q_vector limit */
-#define IXGBE_MAX_FCOE_INDICES  8
-#define MAX_RX_QUEUES (IXGBE_MAX_FDIR_INDICES + 1)
-#define MAX_TX_QUEUES (IXGBE_MAX_FDIR_INDICES + 1)
-#define IXGBE_MAX_L2A_QUEUES 4
-#define IXGBE_MAX_L2A_QUEUES 4
-#define IXGBE_BAD_L2A_QUEUE 3
-#define IXGBE_MAX_MACVLANS	31
-#define IXGBE_MAX_DCBMACVLANS	8
+#define IXGBE_MAX_RSS_INDICES		16
+#define IXGBE_MAX_RSS_INDICES_X550	64
+#define IXGBE_MAX_VMDQ_INDICES		64
+#define IXGBE_MAX_FDIR_INDICES		63	/* based on q_vector limit */
+#define IXGBE_MAX_FCOE_INDICES		8
+#define MAX_RX_QUEUES			(IXGBE_MAX_FDIR_INDICES + 1)
+#define MAX_TX_QUEUES			(IXGBE_MAX_FDIR_INDICES + 1)
+#define IXGBE_MAX_L2A_QUEUES		4
+#define IXGBE_BAD_L2A_QUEUE		3
+#define IXGBE_MAX_MACVLANS		31
+#define IXGBE_MAX_DCBMACVLANS		8
 
 struct ixgbe_ring_feature {
 	u16 limit;	/* upper limit on feature indices */
@@ -386,119 +389,87 @@ struct ixgbe_q_vector {
 	char name[IFNAMSIZ + 9];
 
 #ifdef CONFIG_NET_RX_BUSY_POLL
-	unsigned int state;
-#define IXGBE_QV_STATE_IDLE        0
-#define IXGBE_QV_STATE_NAPI	   1     /* NAPI owns this QV */
-#define IXGBE_QV_STATE_POLL	   2     /* poll owns this QV */
-#define IXGBE_QV_STATE_DISABLED	   4     /* QV is disabled */
-#define IXGBE_QV_OWNED (IXGBE_QV_STATE_NAPI | IXGBE_QV_STATE_POLL)
-#define IXGBE_QV_LOCKED (IXGBE_QV_OWNED | IXGBE_QV_STATE_DISABLED)
-#define IXGBE_QV_STATE_NAPI_YIELD  8     /* NAPI yielded this QV */
-#define IXGBE_QV_STATE_POLL_YIELD  16    /* poll yielded this QV */
-#define IXGBE_QV_YIELD (IXGBE_QV_STATE_NAPI_YIELD | IXGBE_QV_STATE_POLL_YIELD)
-#define IXGBE_QV_USER_PEND (IXGBE_QV_STATE_POLL | IXGBE_QV_STATE_POLL_YIELD)
-	spinlock_t lock;
+	atomic_t state;
 #endif  /* CONFIG_NET_RX_BUSY_POLL */
 
 	/* for dynamic allocation of rings associated with this q_vector */
 	struct ixgbe_ring ring[0] ____cacheline_internodealigned_in_smp;
 };
+
 #ifdef CONFIG_NET_RX_BUSY_POLL
+enum ixgbe_qv_state_t {
+	IXGBE_QV_STATE_IDLE = 0,
+	IXGBE_QV_STATE_NAPI,
+	IXGBE_QV_STATE_POLL,
+	IXGBE_QV_STATE_DISABLE
+};
+
 static inline void ixgbe_qv_init_lock(struct ixgbe_q_vector *q_vector)
 {
-
-	spin_lock_init(&q_vector->lock);
-	q_vector->state = IXGBE_QV_STATE_IDLE;
+	/* reset state to idle */
+	atomic_set(&q_vector->state, IXGBE_QV_STATE_IDLE);
 }
 
 /* called from the device poll routine to get ownership of a q_vector */
 static inline bool ixgbe_qv_lock_napi(struct ixgbe_q_vector *q_vector)
 {
-	int rc = true;
-	spin_lock_bh(&q_vector->lock);
-	if (q_vector->state & IXGBE_QV_LOCKED) {
-		WARN_ON(q_vector->state & IXGBE_QV_STATE_NAPI);
-		q_vector->state |= IXGBE_QV_STATE_NAPI_YIELD;
-		rc = false;
+	int rc = atomic_cmpxchg(&q_vector->state, IXGBE_QV_STATE_IDLE,
+				IXGBE_QV_STATE_NAPI);
 #ifdef BP_EXTENDED_STATS
+	if (rc != IXGBE_QV_STATE_IDLE)
 		q_vector->tx.ring->stats.yields++;
 #endif
-	} else {
-		/* we don't care if someone yielded */
-		q_vector->state = IXGBE_QV_STATE_NAPI;
-	}
-	spin_unlock_bh(&q_vector->lock);
-	return rc;
+
+	return rc == IXGBE_QV_STATE_IDLE;
 }
 
 /* returns true is someone tried to get the qv while napi had it */
-static inline bool ixgbe_qv_unlock_napi(struct ixgbe_q_vector *q_vector)
+static inline void ixgbe_qv_unlock_napi(struct ixgbe_q_vector *q_vector)
 {
-	int rc = false;
-	spin_lock_bh(&q_vector->lock);
-	WARN_ON(q_vector->state & (IXGBE_QV_STATE_POLL |
-			       IXGBE_QV_STATE_NAPI_YIELD));
+	WARN_ON(atomic_read(&q_vector->state) != IXGBE_QV_STATE_NAPI);
 
-	if (q_vector->state & IXGBE_QV_STATE_POLL_YIELD)
-		rc = true;
-	/* will reset state to idle, unless QV is disabled */
-	q_vector->state &= IXGBE_QV_STATE_DISABLED;
-	spin_unlock_bh(&q_vector->lock);
-	return rc;
+	/* flush any outstanding Rx frames */
+	if (q_vector->napi.gro_list)
+		napi_gro_flush(&q_vector->napi, false);
+
+	/* reset state to idle */
+	atomic_set(&q_vector->state, IXGBE_QV_STATE_IDLE);
 }
 
 /* called from ixgbe_low_latency_poll() */
 static inline bool ixgbe_qv_lock_poll(struct ixgbe_q_vector *q_vector)
 {
-	int rc = true;
-	spin_lock_bh(&q_vector->lock);
-	if ((q_vector->state & IXGBE_QV_LOCKED)) {
-		q_vector->state |= IXGBE_QV_STATE_POLL_YIELD;
-		rc = false;
+	int rc = atomic_cmpxchg(&q_vector->state, IXGBE_QV_STATE_IDLE,
+				IXGBE_QV_STATE_POLL);
 #ifdef BP_EXTENDED_STATS
-		q_vector->rx.ring->stats.yields++;
+	if (rc != IXGBE_QV_STATE_IDLE)
+		q_vector->tx.ring->stats.yields++;
 #endif
-	} else {
-		/* preserve yield marks */
-		q_vector->state |= IXGBE_QV_STATE_POLL;
-	}
-	spin_unlock_bh(&q_vector->lock);
-	return rc;
+	return rc == IXGBE_QV_STATE_IDLE;
 }
 
 /* returns true if someone tried to get the qv while it was locked */
-static inline bool ixgbe_qv_unlock_poll(struct ixgbe_q_vector *q_vector)
+static inline void ixgbe_qv_unlock_poll(struct ixgbe_q_vector *q_vector)
 {
-	int rc = false;
-	spin_lock_bh(&q_vector->lock);
-	WARN_ON(q_vector->state & (IXGBE_QV_STATE_NAPI));
+	WARN_ON(atomic_read(&q_vector->state) != IXGBE_QV_STATE_POLL);
 
-	if (q_vector->state & IXGBE_QV_STATE_POLL_YIELD)
-		rc = true;
-	/* will reset state to idle, unless QV is disabled */
-	q_vector->state &= IXGBE_QV_STATE_DISABLED;
-	spin_unlock_bh(&q_vector->lock);
-	return rc;
+	/* reset state to idle */
+	atomic_set(&q_vector->state, IXGBE_QV_STATE_IDLE);
 }
 
 /* true if a socket is polling, even if it did not get the lock */
 static inline bool ixgbe_qv_busy_polling(struct ixgbe_q_vector *q_vector)
 {
-	WARN_ON(!(q_vector->state & IXGBE_QV_OWNED));
-	return q_vector->state & IXGBE_QV_USER_PEND;
+	return atomic_read(&q_vector->state) == IXGBE_QV_STATE_POLL;
 }
 
 /* false if QV is currently owned */
 static inline bool ixgbe_qv_disable(struct ixgbe_q_vector *q_vector)
 {
-	int rc = true;
-	spin_lock_bh(&q_vector->lock);
-	if (q_vector->state & IXGBE_QV_OWNED)
-		rc = false;
-	q_vector->state |= IXGBE_QV_STATE_DISABLED;
-	spin_unlock_bh(&q_vector->lock);
+	int rc = atomic_cmpxchg(&q_vector->state, IXGBE_QV_STATE_IDLE,
+				IXGBE_QV_STATE_DISABLE);
 
-	return rc;
+	return rc == IXGBE_QV_STATE_IDLE;
 }
 
 #else /* CONFIG_NET_RX_BUSY_POLL */
@@ -586,11 +557,6 @@ static inline u16 ixgbe_desc_unused(struct ixgbe_ring *ring)
 	return ((ntc > ntu) ? 0 : ring->count) + ntc - ntu - 1;
 }
 
-static inline void ixgbe_write_tail(struct ixgbe_ring *ring, u32 value)
-{
-	writel(value, ring->tail);
-}
-
 #define IXGBE_RX_DESC(R, i)	    \
 	(&(((union ixgbe_adv_rx_desc *)((R)->desc))[i]))
 #define IXGBE_TX_DESC(R, i)	    \
@@ -643,14 +609,11 @@ struct ixgbe_adapter {
 	 * thus the additional *_CAPABLE flags.
 	 */
 	u32 flags;
-#define IXGBE_FLAG_MSI_CAPABLE                  (u32)(1 << 0)
 #define IXGBE_FLAG_MSI_ENABLED                  (u32)(1 << 1)
-#define IXGBE_FLAG_MSIX_CAPABLE                 (u32)(1 << 2)
 #define IXGBE_FLAG_MSIX_ENABLED                 (u32)(1 << 3)
 #define IXGBE_FLAG_RX_1BUF_CAPABLE              (u32)(1 << 4)
 #define IXGBE_FLAG_RX_PS_CAPABLE                (u32)(1 << 5)
 #define IXGBE_FLAG_RX_PS_ENABLED                (u32)(1 << 6)
-#define IXGBE_FLAG_IN_NETPOLL                   (u32)(1 << 7)
 #define IXGBE_FLAG_DCA_ENABLED                  (u32)(1 << 8)
 #define IXGBE_FLAG_DCA_CAPABLE                  (u32)(1 << 9)
 #define IXGBE_FLAG_IMIR_ENABLED                 (u32)(1 << 10)
@@ -680,7 +643,6 @@ struct ixgbe_adapter {
 #define IXGBE_FLAG2_RSS_FIELD_IPV4_UDP		(u32)(1 << 8)
 #define IXGBE_FLAG2_RSS_FIELD_IPV6_UDP		(u32)(1 << 9)
 #define IXGBE_FLAG2_PTP_PPS_ENABLED		(u32)(1 << 10)
-#define IXGBE_FLAG2_BRIDGE_MODE_VEB		(u32)(1 << 11)
 
 	/* Tx fast path data */
 	int num_tx_queues;
@@ -760,7 +722,7 @@ struct ixgbe_adapter {
 	u8 __iomem *io_addr; /* Mainly for iounmap use */
 	u32 wol;
 
-	u16 bd_number;
+	u16 bridge_mode;
 
 	u16 eeprom_verh;
 	u16 eeprom_verl;
@@ -794,6 +756,7 @@ struct ixgbe_adapter {
 	u32 timer_event_accumulator;
 	u32 vferr_refcount;
 	struct ixgbe_mac_addr *mac_table;
+	u16 vxlan_port;
 	struct kobject *info_kobj;
 #ifdef CONFIG_IXGBE_HWMON
 	struct hwmon_buff *ixgbe_hwmon_buff;
@@ -804,7 +767,31 @@ struct ixgbe_adapter {
 
 	u8 default_up;
 	unsigned long fwd_bitmask; /* Bitmask indicating in use pools */
+
+/* maximum number of RETA entries among all devices supported by ixgbe
+ * driver: currently it's x550 device in non-SRIOV mode
+ */
+#define IXGBE_MAX_RETA_ENTRIES 512
+	u8 rss_indir_tbl[IXGBE_MAX_RETA_ENTRIES];
+
+#define IXGBE_RSS_KEY_SIZE     40  /* size of RSS Hash Key in bytes */
+	u32 rss_key[IXGBE_RSS_KEY_SIZE / sizeof(u32)];
 };
+
+static inline u8 ixgbe_max_rss_indices(struct ixgbe_adapter *adapter)
+{
+	switch (adapter->hw.mac.type) {
+	case ixgbe_mac_82598EB:
+	case ixgbe_mac_82599EB:
+	case ixgbe_mac_X540:
+		return IXGBE_MAX_RSS_INDICES;
+	case ixgbe_mac_X550:
+	case ixgbe_mac_X550EM_x:
+		return IXGBE_MAX_RSS_INDICES_X550;
+	default:
+		return 0;
+	}
+}
 
 struct ixgbe_fdir_filter {
 	struct hlist_node fdir_node;
@@ -841,11 +828,15 @@ enum ixgbe_boards {
 	board_82598,
 	board_82599,
 	board_X540,
+	board_X550,
+	board_X550EM_x,
 };
 
 extern struct ixgbe_info ixgbe_82598_info;
 extern struct ixgbe_info ixgbe_82599_info;
 extern struct ixgbe_info ixgbe_X540_info;
+extern struct ixgbe_info ixgbe_X550_info;
+extern struct ixgbe_info ixgbe_X550EM_x_info;
 #ifdef CONFIG_IXGBE_DCB
 extern const struct dcbnl_rtnl_ops dcbnl_ops;
 #endif
@@ -974,4 +965,5 @@ void ixgbe_sriov_reinit(struct ixgbe_adapter *adapter);
 netdev_tx_t ixgbe_xmit_frame_ring(struct sk_buff *skb,
 				  struct ixgbe_adapter *adapter,
 				  struct ixgbe_ring *tx_ring);
+u32 ixgbe_rss_indir_tbl_entries(struct ixgbe_adapter *adapter);
 #endif /* _IXGBE_H_ */

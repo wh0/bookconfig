@@ -31,6 +31,7 @@ static struct clk *step_clk;
 static struct clk *pll2_pfd2_396m_clk;
 
 static struct device *cpu_dev;
+static bool free_opp;
 static struct cpufreq_frequency_table *freq_table;
 static unsigned int transition_latency;
 
@@ -66,10 +67,12 @@ static int imx6q_set_target(struct cpufreq_policy *policy, unsigned int index)
 
 	/* scaling up?  scale voltage before frequency */
 	if (new_freq > old_freq) {
-		ret = regulator_set_voltage_tol(pu_reg, imx6_soc_volt[index], 0);
-		if (ret) {
-			dev_err(cpu_dev, "failed to scale vddpu up: %d\n", ret);
-			return ret;
+		if (!IS_ERR(pu_reg)) {
+			ret = regulator_set_voltage_tol(pu_reg, imx6_soc_volt[index], 0);
+			if (ret) {
+				dev_err(cpu_dev, "failed to scale vddpu up: %d\n", ret);
+				return ret;
+			}
 		}
 		ret = regulator_set_voltage_tol(soc_reg, imx6_soc_volt[index], 0);
 		if (ret) {
@@ -121,10 +124,12 @@ static int imx6q_set_target(struct cpufreq_policy *policy, unsigned int index)
 			dev_warn(cpu_dev, "failed to scale vddsoc down: %d\n", ret);
 			ret = 0;
 		}
-		ret = regulator_set_voltage_tol(pu_reg, imx6_soc_volt[index], 0);
-		if (ret) {
-			dev_warn(cpu_dev, "failed to scale vddpu down: %d\n", ret);
-			ret = 0;
+		if (!IS_ERR(pu_reg)) {
+			ret = regulator_set_voltage_tol(pu_reg, imx6_soc_volt[index], 0);
+			if (ret) {
+				dev_warn(cpu_dev, "failed to scale vddpu down: %d\n", ret);
+				ret = 0;
+			}
 		}
 	}
 
@@ -182,9 +187,9 @@ static int imx6q_cpufreq_probe(struct platform_device *pdev)
 	}
 
 	arm_reg = regulator_get(cpu_dev, "arm");
-	pu_reg = regulator_get(cpu_dev, "pu");
+	pu_reg = regulator_get_optional(cpu_dev, "pu");
 	soc_reg = regulator_get(cpu_dev, "soc");
-	if (IS_ERR(arm_reg) || IS_ERR(pu_reg) || IS_ERR(soc_reg)) {
+	if (IS_ERR(arm_reg) || IS_ERR(soc_reg)) {
 		dev_err(cpu_dev, "failed to get regulators\n");
 		ret = -ENOENT;
 		goto put_reg;
@@ -203,11 +208,14 @@ static int imx6q_cpufreq_probe(struct platform_device *pdev)
 			goto put_reg;
 		}
 
+		/* Because we have added the OPPs here, we must free them */
+		free_opp = true;
+
 		num = dev_pm_opp_get_opp_count(cpu_dev);
 		if (num < 0) {
 			ret = num;
 			dev_err(cpu_dev, "no OPP table is found: %d\n", ret);
-			goto put_reg;
+			goto out_free_opp;
 		}
 	}
 
@@ -268,9 +276,11 @@ soc_opp_out:
 	ret = regulator_set_voltage_time(soc_reg, imx6_soc_volt[0], imx6_soc_volt[num - 1]);
 	if (ret > 0)
 		transition_latency += ret * 1000;
-	ret = regulator_set_voltage_time(pu_reg, imx6_soc_volt[0], imx6_soc_volt[num - 1]);
-	if (ret > 0)
-		transition_latency += ret * 1000;
+	if (!IS_ERR(pu_reg)) {
+		ret = regulator_set_voltage_time(pu_reg, imx6_soc_volt[0], imx6_soc_volt[num - 1]);
+		if (ret > 0)
+			transition_latency += ret * 1000;
+	}
 
 	/*
 	 * OPP is maintained in order of increasing frequency, and
@@ -300,6 +310,9 @@ soc_opp_out:
 
 free_freq_table:
 	dev_pm_opp_free_cpufreq_table(cpu_dev, &freq_table);
+out_free_opp:
+	if (free_opp)
+		of_free_opp_table(cpu_dev);
 put_reg:
 	if (!IS_ERR(arm_reg))
 		regulator_put(arm_reg);
@@ -326,8 +339,11 @@ static int imx6q_cpufreq_remove(struct platform_device *pdev)
 {
 	cpufreq_unregister_driver(&imx6q_cpufreq_driver);
 	dev_pm_opp_free_cpufreq_table(cpu_dev, &freq_table);
+	if (free_opp)
+		of_free_opp_table(cpu_dev);
 	regulator_put(arm_reg);
-	regulator_put(pu_reg);
+	if (!IS_ERR(pu_reg))
+		regulator_put(pu_reg);
 	regulator_put(soc_reg);
 	clk_put(arm_clk);
 	clk_put(pll1_sys_clk);
@@ -341,7 +357,6 @@ static int imx6q_cpufreq_remove(struct platform_device *pdev)
 static struct platform_driver imx6q_cpufreq_platdrv = {
 	.driver = {
 		.name	= "imx6q-cpufreq",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= imx6q_cpufreq_probe,
 	.remove		= imx6q_cpufreq_remove,

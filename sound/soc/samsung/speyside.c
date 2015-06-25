@@ -153,16 +153,10 @@ static int speyside_wm8996_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("Failed to request HP_SEL GPIO: %d\n", ret);
 	gpio_direction_output(WM8996_HPSEL_GPIO, speyside_jack_polarity);
 
-	ret = snd_soc_jack_new(codec, "Headset",
-			       SND_JACK_LINEOUT | SND_JACK_HEADSET |
-			       SND_JACK_BTN_0,
-			       &speyside_headset);
-	if (ret)
-		return ret;
-
-	ret = snd_soc_jack_add_pins(&speyside_headset,
-				    ARRAY_SIZE(speyside_headset_pins),
-				    speyside_headset_pins);
+	ret = snd_soc_card_jack_new(rtd->card, "Headset", SND_JACK_LINEOUT |
+				    SND_JACK_HEADSET | SND_JACK_BTN_0,
+				    &speyside_headset, speyside_headset_pins,
+				    ARRAY_SIZE(speyside_headset_pins));
 	if (ret)
 		return ret;
 
@@ -228,10 +222,12 @@ static struct snd_soc_dai_link speyside_dai[] = {
 	},
 };
 
-static int speyside_wm9081_init(struct snd_soc_dapm_context *dapm)
+static int speyside_wm9081_init(struct snd_soc_component *component)
 {
+	struct snd_soc_codec *codec = snd_soc_component_to_codec(component);
+
 	/* At any time the WM9081 is active it will have this clock */
-	return snd_soc_codec_set_sysclk(dapm->codec, WM9081_SYSCLK_MCLK, 0,
+	return snd_soc_codec_set_sysclk(codec, WM9081_SYSCLK_MCLK, 0,
 					MCLK_AUDIO_RATE, 0);
 }
 
@@ -338,7 +334,6 @@ static int speyside_probe(struct platform_device *pdev)
 static struct platform_driver speyside_driver = {
 	.driver = {
 		.name = "speyside",
-		.owner = THIS_MODULE,
 		.pm = &snd_soc_pm_ops,
 	},
 	.probe = speyside_probe,

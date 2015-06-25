@@ -370,7 +370,13 @@ static int efm32_i2c_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = of_property_read_u32(np, "efm32,location", &location);
+
+	ret = of_property_read_u32(np, "energymicro,location", &location);
+
+	if (ret)
+		/* fall back to wrongly namespaced property */
+		ret = of_property_read_u32(np, "efm32,location", &location);
+
 	if (!ret) {
 		dev_dbg(&pdev->dev, "using location %u\n", location);
 	} else {
@@ -467,7 +473,6 @@ static struct platform_driver efm32_i2c_driver = {
 
 	.driver = {
 		.name = DRIVER_NAME,
-		.owner = THIS_MODULE,
 		.of_match_table = efm32_i2c_dt_ids,
 	},
 };

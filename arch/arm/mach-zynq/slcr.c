@@ -47,11 +47,6 @@ static struct regmap *zynq_slcr_regmap;
  */
 static int zynq_slcr_write(u32 val, u32 offset)
 {
-	if (!zynq_slcr_regmap) {
-		writel(val, zynq_slcr_base + offset);
-		return 0;
-	}
-
 	return regmap_write(zynq_slcr_regmap, offset, val);
 }
 
@@ -65,12 +60,7 @@ static int zynq_slcr_write(u32 val, u32 offset)
  */
 static int zynq_slcr_read(u32 *val, u32 offset)
 {
-	if (zynq_slcr_regmap)
-		return regmap_read(zynq_slcr_regmap, offset, val);
-
-	*val = readl(zynq_slcr_base + offset);
-
-	return 0;
+	return regmap_read(zynq_slcr_regmap, offset, val);
 }
 
 /**
@@ -138,6 +128,8 @@ void zynq_slcr_cpu_start(int cpu)
 	zynq_slcr_write(reg, SLCR_A9_CPU_RST_CTRL_OFFSET);
 	reg &= ~(SLCR_A9_CPU_CLKSTOP << cpu);
 	zynq_slcr_write(reg, SLCR_A9_CPU_RST_CTRL_OFFSET);
+
+	zynq_slcr_cpu_state_write(cpu, false);
 }
 
 /**
@@ -154,21 +146,43 @@ void zynq_slcr_cpu_stop(int cpu)
 }
 
 /**
- * zynq_slcr_init - Regular slcr driver init
+ * zynq_slcr_cpu_state - Read/write cpu state
+ * @cpu:	cpu number
  *
- * Return:	0 on success, negative errno otherwise.
+ * SLCR_REBOOT_STATUS save upper 2 bits (31/30 cpu states for cpu0 and cpu1)
+ * 0 means cpu is running, 1 cpu is going to die.
  *
- * Called early during boot from platform code to remap SLCR area.
+ * Return: true if cpu is running, false if cpu is going to die
  */
-int __init zynq_slcr_init(void)
+bool zynq_slcr_cpu_state_read(int cpu)
 {
-	zynq_slcr_regmap = syscon_regmap_lookup_by_compatible("xlnx,zynq-slcr");
-	if (IS_ERR(zynq_slcr_regmap)) {
-		pr_err("%s: failed to find zynq-slcr\n", __func__);
-		return -ENODEV;
-	}
+	u32 state;
 
-	return 0;
+	state = readl(zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
+	state &= 1 << (31 - cpu);
+
+	return !state;
+}
+
+/**
+ * zynq_slcr_cpu_state - Read/write cpu state
+ * @cpu:	cpu number
+ * @die:	cpu state - true if cpu is going to die
+ *
+ * SLCR_REBOOT_STATUS save upper 2 bits (31/30 cpu states for cpu0 and cpu1)
+ * 0 means cpu is running, 1 cpu is going to die.
+ */
+void zynq_slcr_cpu_state_write(int cpu, bool die)
+{
+	u32 state, mask;
+
+	state = readl(zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
+	mask = 1 << (31 - cpu);
+	if (die)
+		state |= mask;
+	else
+		state &= ~mask;
+	writel(state, zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
 }
 
 /**
@@ -195,6 +209,12 @@ int __init zynq_early_slcr_init(void)
 	}
 
 	np->data = (__force void *)zynq_slcr_base;
+
+	zynq_slcr_regmap = syscon_regmap_lookup_by_compatible("xlnx,zynq-slcr");
+	if (IS_ERR(zynq_slcr_regmap)) {
+		pr_err("%s: failed to find zynq-slcr\n", __func__);
+		return -ENODEV;
+	}
 
 	/* unlock the SLCR so that registers can be changed */
 	zynq_slcr_unlock();

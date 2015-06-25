@@ -33,7 +33,7 @@
 
 #define DRV_NAME		"enic"
 #define DRV_DESCRIPTION		"Cisco VIC Ethernet NIC Driver"
-#define DRV_VERSION		"2.1.1.50"
+#define DRV_VERSION		"2.1.1.83"
 #define DRV_COPYRIGHT		"Copyright 2008-2013 Cisco Systems, Inc"
 
 #define ENIC_BARS_MAX		6
@@ -99,6 +99,41 @@ struct enic_port_profile {
 	u8 mac_addr[ETH_ALEN];
 };
 
+/* enic_rfs_fltr_node - rfs filter node in hash table
+ *	@@keys: IPv4 5 tuple
+ *	@flow_id: flow_id of clsf filter provided by kernel
+ *	@fltr_id: filter id of clsf filter returned by adaptor
+ *	@rq_id: desired rq index
+ *	@node: hlist_node
+ */
+struct enic_rfs_fltr_node {
+	struct flow_keys keys;
+	u32 flow_id;
+	u16 fltr_id;
+	u16 rq_id;
+	struct hlist_node node;
+};
+
+/* enic_rfs_flw_tbl - rfs flow table
+ *	@max: Maximum number of filters vNIC supports
+ *	@free: Number of free filters available
+ *	@toclean: hash table index to clean next
+ *	@ht_head: hash table list head
+ *	@lock: spin lock
+ *	@rfs_may_expire: timer function for enic_rps_may_expire_flow
+ */
+struct enic_rfs_flw_tbl {
+	u16 max;
+	int free;
+
+#define ENIC_RFS_FLW_BITSHIFT	(10)
+#define ENIC_RFS_FLW_MASK	((1 << ENIC_RFS_FLW_BITSHIFT) - 1)
+	u16 toclean:ENIC_RFS_FLW_BITSHIFT;
+	struct hlist_head ht_head[1 << ENIC_RFS_FLW_BITSHIFT];
+	spinlock_t lock;
+	struct timer_list rfs_may_expire;
+};
+
 /* Per-instance private data structure */
 struct enic {
 	struct net_device *netdev;
@@ -140,7 +175,7 @@ struct enic {
 	unsigned int rq_count;
 	u64 rq_truncated_pkts;
 	u64 rq_bad_fcs;
-	struct napi_struct napi[ENIC_RQ_MAX];
+	struct napi_struct napi[ENIC_RQ_MAX + ENIC_WQ_MAX];
 
 	/* interrupt resource cache line section */
 	____cacheline_aligned struct vnic_intr intr[ENIC_INTR_MAX];
@@ -150,6 +185,10 @@ struct enic {
 	/* completion queue cache line section */
 	____cacheline_aligned struct vnic_cq cq[ENIC_CQ_MAX];
 	unsigned int cq_count;
+	struct enic_rfs_flw_tbl rfs_h;
+	u32 rx_copybreak;
+	u8 rss_key[ENIC_RSS_LEN];
+	struct vnic_gen_stats gen_stats;
 };
 
 static inline struct device *enic_get_dev(struct enic *enic)
@@ -204,10 +243,24 @@ static inline unsigned int enic_msix_notify_intr(struct enic *enic)
 	return enic->rq_count + enic->wq_count + 1;
 }
 
+static inline int enic_dma_map_check(struct enic *enic, dma_addr_t dma_addr)
+{
+	if (unlikely(pci_dma_mapping_error(enic->pdev, dma_addr))) {
+		net_warn_ratelimited("%s: PCI dma mapping failed!\n",
+				     enic->netdev->name);
+		enic->gen_stats.dma_map_error++;
+
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 void enic_reset_addr_lists(struct enic *enic);
 int enic_sriov_enabled(struct enic *enic);
 int enic_is_valid_vf(struct enic *enic, int vf);
 int enic_is_dynamic(struct enic *enic);
 void enic_set_ethtool_ops(struct net_device *netdev);
+int __enic_set_rsskey(struct enic *enic);
 
 #endif /* _ENIC_H_ */

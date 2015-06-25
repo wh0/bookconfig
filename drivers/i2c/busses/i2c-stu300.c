@@ -909,7 +909,7 @@ static int stu300_probe(struct platform_device *pdev)
 	adap = &dev->adapter;
 	adap->owner = THIS_MODULE;
 	/* DDC class but actually often used for more generic I2C */
-	adap->class = I2C_CLASS_DDC | I2C_CLASS_DEPRECATED;
+	adap->class = I2C_CLASS_DEPRECATED;
 	strlcpy(adap->name, "ST Microelectronics DDC I2C adapter",
 		sizeof(adap->name));
 	adap->nr = bus_nr;
@@ -981,7 +981,6 @@ static const struct of_device_id stu300_dt_match[] = {
 static struct platform_driver stu300_i2c_driver = {
 	.driver = {
 		.name	= NAME,
-		.owner	= THIS_MODULE,
 		.pm	= STU300_I2C_PM,
 		.of_match_table = stu300_dt_match,
 	},

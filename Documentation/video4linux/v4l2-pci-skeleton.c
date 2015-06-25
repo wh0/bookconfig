@@ -42,7 +42,6 @@
 MODULE_DESCRIPTION("V4L2 PCI Skeleton Driver");
 MODULE_AUTHOR("Hans Verkuil");
 MODULE_LICENSE("GPL v2");
-MODULE_DEVICE_TABLE(pci, skeleton_pci_tbl);
 
 /**
  * struct skeleton - All internal data for one instance of device
@@ -95,6 +94,7 @@ static const struct pci_device_id skeleton_pci_tbl[] = {
 	/* { PCI_DEVICE(PCI_VENDOR_ID_, PCI_DEVICE_ID_) }, */
 	{ 0, }
 };
+MODULE_DEVICE_TABLE(pci, skeleton_pci_tbl);
 
 /*
  * HDTV: this structure has the capabilities of the HDTV receiver.
@@ -883,11 +883,6 @@ static int skeleton_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	vdev->v4l2_dev = &skel->v4l2_dev;
 	/* Supported SDTV standards, if any */
 	vdev->tvnorms = SKEL_TVNORMS;
-	/* If this bit is set, then the v4l2 core will provide the support
-	 * for the VIDIOC_G/S_PRIORITY ioctls. This flag will eventually
-	 * go away once all drivers have been converted to use struct v4l2_fh.
-	 */
-	set_bit(V4L2_FL_USE_FH_PRIO, &vdev->flags);
 	video_set_drvdata(vdev, skel);
 
 	ret = video_register_device(vdev, VFL_TYPE_GRABBER, -1);

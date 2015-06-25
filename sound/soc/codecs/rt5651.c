@@ -376,7 +376,7 @@ static const struct snd_kcontrol_new rt5651_snd_controls[] = {
 static int set_dmic_clk(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
 	int idx = -EINVAL;
 
@@ -394,9 +394,10 @@ static int set_dmic_clk(struct snd_soc_dapm_widget *w,
 static int is_sysclk_from_pll(struct snd_soc_dapm_widget *source,
 			 struct snd_soc_dapm_widget *sink)
 {
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(source->dapm);
 	unsigned int val;
 
-	val = snd_soc_read(source->codec, RT5651_GLB_CLK);
+	val = snd_soc_read(codec, RT5651_GLB_CLK);
 	val &= RT5651_SCLK_SRC_MASK;
 	if (val == RT5651_SCLK_SRC_PLL1)
 		return 1;
@@ -731,7 +732,7 @@ static const struct snd_kcontrol_new rt5651_pdm_r_mux =
 static int rt5651_amp_power_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
@@ -769,7 +770,7 @@ static int rt5651_amp_power_event(struct snd_soc_dapm_widget *w,
 static int rt5651_hp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
@@ -813,7 +814,8 @@ static int rt5651_hp_event(struct snd_soc_dapm_widget *w,
 static int rt5651_hp_post_event(struct snd_soc_dapm_widget *w,
 			   struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct rt5651_priv *rt5651 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
@@ -833,7 +835,7 @@ static int rt5651_hp_post_event(struct snd_soc_dapm_widget *w,
 static int rt5651_bst1_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
@@ -856,7 +858,7 @@ static int rt5651_bst1_event(struct snd_soc_dapm_widget *w,
 static int rt5651_bst2_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
@@ -879,7 +881,7 @@ static int rt5651_bst2_event(struct snd_soc_dapm_widget *w,
 static int rt5651_bst3_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
@@ -1366,16 +1368,16 @@ static int rt5651_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "bclk_ms is %d and pre_div is %d for iis %d\n",
 				bclk_ms, pre_div, dai->id);
 
-	switch (params_format(params)) {
-	case SNDRV_PCM_FORMAT_S16_LE:
+	switch (params_width(params)) {
+	case 16:
 		break;
-	case SNDRV_PCM_FORMAT_S20_3LE:
+	case 20:
 		val_len |= RT5651_I2S_DL_20;
 		break;
-	case SNDRV_PCM_FORMAT_S24_LE:
+	case 24:
 		val_len |= RT5651_I2S_DL_24;
 		break;
-	case SNDRV_PCM_FORMAT_S8:
+	case 8:
 		val_len |= RT5651_I2S_DL_8;
 		break;
 	default:

@@ -1,6 +1,7 @@
 /******************************************************************************
  *
  * Copyright(c) 2003 - 2014 Intel Corporation. All rights reserved.
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
  *
  * Portions of this file are derived from the ipw3945 project, as well
  * as portions of the ieee80211 subsystem header files.
@@ -599,9 +600,11 @@ static void iwl_pcie_rx_handle_rb(struct iwl_trans *trans,
 		if (pkt->len_n_flags == cpu_to_le32(FH_RSCSR_FRAME_INVALID))
 			break;
 
-		IWL_DEBUG_RX(trans, "cmd at offset %d: %s (0x%.2x)\n",
-			rxcb._offset, get_cmd_string(trans_pcie, pkt->hdr.cmd),
-			pkt->hdr.cmd);
+		IWL_DEBUG_RX(trans,
+			     "cmd at offset %d: %s (0x%.2x, seq 0x%x)\n",
+			     rxcb._offset,
+			     get_cmd_string(trans_pcie, pkt->hdr.cmd),
+			     pkt->hdr.cmd, le16_to_cpu(pkt->hdr.sequence));
 
 		len = iwl_rx_packet_len(pkt);
 		len += sizeof(u32); /* account for status word */
@@ -639,7 +642,7 @@ static void iwl_pcie_rx_handle_rb(struct iwl_trans *trans,
 		err = iwl_op_mode_rx(trans->op_mode, &rxcb, cmd);
 
 		if (reclaim) {
-			kfree(txq->entries[cmd_index].free_buf);
+			kzfree(txq->entries[cmd_index].free_buf);
 			txq->entries[cmd_index].free_buf = NULL;
 		}
 

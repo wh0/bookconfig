@@ -51,7 +51,6 @@ enum _NIC_VERSION {
 #include <rtw_debug.h>
 #include <rtw_rf.h>
 #include <rtw_event.h>
-#include <rtw_led.h>
 #include <rtw_mlme_ext.h>
 #include <rtw_ap.h>
 
@@ -111,7 +110,6 @@ struct registry_priv {
 	u8	antdiv_cfg;
 	u8	antdiv_type;
 
-	u8	usbss_enable;/* 0:disable,1:enable */
 	u8	hwpdn_mode;/* 0:disable,1:enable,2:decide by EFUSE config */
 	u8	hwpwrp_detect;/* 0:disable,1:enable */
 
@@ -177,10 +175,13 @@ struct dvobj_priv {
 	u8	RtNumOutPipes;
 	int	ep_num[5]; /* endpoint number */
 
-	struct mutex  usb_vendor_req_mutex;
+	struct mutex usb_vendor_req_mutex;
 
-	u8 *usb_alloc_vendor_req_buf;
-	u8 *usb_vendor_req_buf;
+	union {
+		__le32 val32;
+		__le16 val16;
+		u8 val8;
+	} usb_buf;
 
 	struct usb_interface *pusbintf;
 	struct usb_device *pusbdev;
@@ -226,7 +227,6 @@ struct rtw_adapter {
 	struct	registry_priv	registrypriv;
 	struct	pwrctrl_priv	pwrctrlpriv;
 	struct	eeprom_priv eeprompriv;
-	struct	led_priv	ledpriv;
 
 	u32	setband;
 
@@ -257,9 +257,6 @@ struct rtw_adapter {
 	u8 bFWReady;
 	u8 bReadPortCancel;
 	u8 bWritePortCancel;
-	/* The driver will show the desired chan nor when this flag is 1. */
-	u8 bNotifyChannelChange;
-	struct rtw_adapter *pbuddy_adapter;
 
 	/* extend to support multi interface */
 	/* IFACE_ID0 is equals to PRIMARY_ADAPTER */
@@ -268,8 +265,6 @@ struct rtw_adapter {
 };
 
 #define adapter_to_dvobj(adapter) (adapter->dvobj)
-
-int rtw_handle_dualmac23a(struct rtw_adapter *adapter, bool init);
 
 static inline u8 *myid(struct eeprom_priv *peepriv)
 {

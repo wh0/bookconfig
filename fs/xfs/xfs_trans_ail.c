@@ -18,10 +18,9 @@
  */
 #include "xfs.h"
 #include "xfs_fs.h"
+#include "xfs_format.h"
 #include "xfs_log_format.h"
 #include "xfs_trans_resv.h"
-#include "xfs_sb.h"
-#include "xfs_ag.h"
 #include "xfs_mount.h"
 #include "xfs_trans.h"
 #include "xfs_trans_priv.h"
@@ -762,7 +761,7 @@ xfs_trans_ail_init(
 
 	ailp = kmem_zalloc(sizeof(struct xfs_ail), KM_MAYFAIL);
 	if (!ailp)
-		return ENOMEM;
+		return -ENOMEM;
 
 	ailp->xa_mount = mp;
 	INIT_LIST_HEAD(&ailp->xa_ail);
@@ -781,7 +780,7 @@ xfs_trans_ail_init(
 
 out_free_ailp:
 	kmem_free(ailp);
-	return ENOMEM;
+	return -ENOMEM;
 }
 
 void

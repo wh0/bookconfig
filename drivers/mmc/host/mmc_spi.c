@@ -1436,6 +1436,7 @@ static int mmc_spi_probe(struct spi_device *spi)
 					     host->pdata->cd_debounce);
 		if (status != 0)
 			goto fail_add_host;
+		mmc_gpiod_request_cd_irq(mmc);
 	}
 
 	if (host->pdata && host->pdata->flags & MMC_SPI_USE_RO_GPIO) {
@@ -1506,7 +1507,7 @@ static int mmc_spi_remove(struct spi_device *spi)
 	return 0;
 }
 
-static struct of_device_id mmc_spi_of_match_table[] = {
+static const struct of_device_id mmc_spi_of_match_table[] = {
 	{ .compatible = "mmc-spi-slot", },
 	{},
 };

@@ -454,25 +454,23 @@ cfs_hash_bkt_size(struct cfs_hash *hs)
 	       hs->hs_extra_bytes;
 }
 
-#define CFS_HOP(hs, op)	   (hs)->hs_ops->hs_ ## op
-
 static inline unsigned
 cfs_hash_id(struct cfs_hash *hs, const void *key, unsigned mask)
 {
-	return CFS_HOP(hs, hash)(hs, key, mask);
+	return hs->hs_ops->hs_hash(hs, key, mask);
 }
 
 static inline void *
 cfs_hash_key(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	return CFS_HOP(hs, key)(hnode);
+	return hs->hs_ops->hs_key(hnode);
 }
 
 static inline void
 cfs_hash_keycpy(struct cfs_hash *hs, struct hlist_node *hnode, void *key)
 {
-	if (CFS_HOP(hs, keycpy) != NULL)
-		CFS_HOP(hs, keycpy)(hnode, key);
+	if (hs->hs_ops->hs_keycpy)
+		hs->hs_ops->hs_keycpy(hnode, key);
 }
 
 /**
@@ -481,42 +479,38 @@ cfs_hash_keycpy(struct cfs_hash *hs, struct hlist_node *hnode, void *key)
 static inline int
 cfs_hash_keycmp(struct cfs_hash *hs, const void *key, struct hlist_node *hnode)
 {
-	return CFS_HOP(hs, keycmp)(key, hnode);
+	return hs->hs_ops->hs_keycmp(key, hnode);
 }
 
 static inline void *
 cfs_hash_object(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	return CFS_HOP(hs, object)(hnode);
+	return hs->hs_ops->hs_object(hnode);
 }
 
 static inline void
 cfs_hash_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	return CFS_HOP(hs, get)(hs, hnode);
+	return hs->hs_ops->hs_get(hs, hnode);
 }
 
 static inline void
 cfs_hash_put_locked(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	LASSERT(CFS_HOP(hs, put_locked) != NULL);
-
-	return CFS_HOP(hs, put_locked)(hs, hnode);
+	return hs->hs_ops->hs_put_locked(hs, hnode);
 }
 
 static inline void
 cfs_hash_put(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	LASSERT(CFS_HOP(hs, put) != NULL);
-
-	return CFS_HOP(hs, put)(hs, hnode);
+	return hs->hs_ops->hs_put(hs, hnode);
 }
 
 static inline void
 cfs_hash_exit(struct cfs_hash *hs, struct hlist_node *hnode)
 {
-	if (CFS_HOP(hs, exit))
-		CFS_HOP(hs, exit)(hs, hnode);
+	if (hs->hs_ops->hs_exit)
+		hs->hs_ops->hs_exit(hs, hnode);
 }
 
 static inline void cfs_hash_lock(struct cfs_hash *hs, int excl)
@@ -628,21 +622,21 @@ static inline int cfs_hash_bd_dec_and_lock(struct cfs_hash *hs, struct cfs_hash_
 }
 
 static inline struct hlist_head *cfs_hash_bd_hhead(struct cfs_hash *hs,
-						  struct cfs_hash_bd *bd)
+						   struct cfs_hash_bd *bd)
 {
 	return hs->hs_hops->hop_hhead(hs, bd);
 }
 
 struct hlist_node *cfs_hash_bd_lookup_locked(struct cfs_hash *hs,
-					    struct cfs_hash_bd *bd, const void *key);
+					     struct cfs_hash_bd *bd, const void *key);
 struct hlist_node *cfs_hash_bd_peek_locked(struct cfs_hash *hs,
-					  struct cfs_hash_bd *bd, const void *key);
+					   struct cfs_hash_bd *bd, const void *key);
 struct hlist_node *cfs_hash_bd_findadd_locked(struct cfs_hash *hs,
-					     struct cfs_hash_bd *bd, const void *key,
+					      struct cfs_hash_bd *bd, const void *key,
 					     struct hlist_node *hnode,
 					     int insist_add);
 struct hlist_node *cfs_hash_bd_finddel_locked(struct cfs_hash *hs,
-					     struct cfs_hash_bd *bd, const void *key,
+					      struct cfs_hash_bd *bd, const void *key,
 					     struct hlist_node *hnode);
 
 /**
@@ -661,21 +655,21 @@ static inline void cfs_hash_dual_bd_get_and_lock(struct cfs_hash *hs, const void
 }
 
 struct hlist_node *cfs_hash_dual_bd_lookup_locked(struct cfs_hash *hs,
-						 struct cfs_hash_bd *bds,
+						  struct cfs_hash_bd *bds,
 						 const void *key);
 struct hlist_node *cfs_hash_dual_bd_findadd_locked(struct cfs_hash *hs,
-						  struct cfs_hash_bd *bds,
+						   struct cfs_hash_bd *bds,
 						  const void *key,
 						  struct hlist_node *hnode,
 						  int insist_add);
 struct hlist_node *cfs_hash_dual_bd_finddel_locked(struct cfs_hash *hs,
-						  struct cfs_hash_bd *bds,
+						   struct cfs_hash_bd *bds,
 						  const void *key,
 						  struct hlist_node *hnode);
 
 /* Hash init/cleanup functions */
 struct cfs_hash *cfs_hash_create(char *name, unsigned cur_bits, unsigned max_bits,
-			    unsigned bkt_bits, unsigned extra_bytes,
+				 unsigned bkt_bits, unsigned extra_bytes,
 			    unsigned min_theta, unsigned max_theta,
 			    cfs_hash_ops_t *ops, unsigned flags);
 
@@ -791,8 +785,8 @@ static inline void __cfs_hash_set_theta(struct cfs_hash *hs, int min, int max)
 
 /* Generic debug formatting routines mainly for proc handler */
 struct seq_file;
-int cfs_hash_debug_header(struct seq_file *m);
-int cfs_hash_debug_str(struct cfs_hash *hs, struct seq_file *m);
+void cfs_hash_debug_header(struct seq_file *m);
+void cfs_hash_debug_str(struct cfs_hash *hs, struct seq_file *m);
 
 /*
  * Generic djb2 hash algorithm for character arrays.

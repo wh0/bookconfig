@@ -44,6 +44,7 @@ enum btrfs_qgroup_operation_type {
 	BTRFS_QGROUP_OPER_ADD_SHARED,
 	BTRFS_QGROUP_OPER_SUB_EXCL,
 	BTRFS_QGROUP_OPER_SUB_SHARED,
+	BTRFS_QGROUP_OPER_SUB_SUBTREE,
 };
 
 struct btrfs_qgroup_operation {
@@ -69,8 +70,7 @@ int btrfs_add_qgroup_relation(struct btrfs_trans_handle *trans,
 int btrfs_del_qgroup_relation(struct btrfs_trans_handle *trans,
 			      struct btrfs_fs_info *fs_info, u64 src, u64 dst);
 int btrfs_create_qgroup(struct btrfs_trans_handle *trans,
-			struct btrfs_fs_info *fs_info, u64 qgroupid,
-			char *name);
+			struct btrfs_fs_info *fs_info, u64 qgroupid);
 int btrfs_remove_qgroup(struct btrfs_trans_handle *trans,
 			      struct btrfs_fs_info *fs_info, u64 qgroupid);
 int btrfs_limit_qgroup(struct btrfs_trans_handle *trans,

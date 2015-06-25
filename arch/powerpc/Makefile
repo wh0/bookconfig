@@ -135,6 +135,7 @@ CFLAGS-$(CONFIG_POWER4_CPU) += $(call cc-option,-mcpu=power4)
 CFLAGS-$(CONFIG_POWER5_CPU) += $(call cc-option,-mcpu=power5)
 CFLAGS-$(CONFIG_POWER6_CPU) += $(call cc-option,-mcpu=power6)
 CFLAGS-$(CONFIG_POWER7_CPU) += $(call cc-option,-mcpu=power7)
+CFLAGS-$(CONFIG_POWER8_CPU) += $(call cc-option,-mcpu=power8)
 
 # Altivec option not allowed with e500mc64 in GCC.
 ifeq ($(CONFIG_ALTIVEC),y)
@@ -247,10 +248,10 @@ boot := arch/$(ARCH)/boot
 
 ifeq ($(CONFIG_RELOCATABLE),y)
 quiet_cmd_relocs_check = CALL    $<
-      cmd_relocs_check = perl $< "$(OBJDUMP)" "$(obj)/vmlinux"
+      cmd_relocs_check = $(CONFIG_SHELL) $< "$(OBJDUMP)" "$(obj)/vmlinux"
 
 PHONY += relocs_check
-relocs_check: arch/powerpc/relocs_check.pl vmlinux
+relocs_check: arch/powerpc/relocs_check.sh vmlinux
 	$(call cmd,relocs_check)
 
 zImage: relocs_check
@@ -313,7 +314,7 @@ TOUT	:= .tmp_gas_check
 # - Require gcc 4.0 or above on 64-bit
 # - gcc-4.2.0 has issues compiling modules on 64-bit
 checkbin:
-	@if test "$(call cc-version)" = "0304" ; then \
+	@if test "$(cc-version)" = "0304" ; then \
 		if ! /bin/echo mftb 5 | $(AS) -v -mppc -many -o $(TOUT) >/dev/null 2>&1 ; then \
 			echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build '; \
 			echo 'correctly with gcc-3.4 and your version of binutils.'; \
@@ -321,13 +322,13 @@ checkbin:
 			false; \
 		fi ; \
 	fi
-	@if test "$(call cc-version)" -lt "0400" \
+	@if test "$(cc-version)" -lt "0400" \
 	    && test "x${CONFIG_PPC64}" = "xy" ; then \
                 echo -n "Sorry, GCC v4.0 or above is required to build " ; \
                 echo "the 64-bit powerpc kernel." ; \
                 false ; \
         fi
-	@if test "$(call cc-fullversion)" = "040200" \
+	@if test "$(cc-fullversion)" = "040200" \
 	    && test "x${CONFIG_MODULES}${CONFIG_PPC64}" = "xyy" ; then \
 		echo -n '*** GCC-4.2.0 cannot compile the 64-bit powerpc ' ; \
 		echo 'kernel with modules enabled.' ; \

@@ -180,11 +180,6 @@ err:
 	return ret;
 }
 
-static int bcm2835_sdhci_remove(struct platform_device *pdev)
-{
-	return sdhci_pltfm_unregister(pdev);
-}
-
 static const struct of_device_id bcm2835_sdhci_of_match[] = {
 	{ .compatible = "brcm,bcm2835-sdhci" },
 	{ }
@@ -194,12 +189,11 @@ MODULE_DEVICE_TABLE(of, bcm2835_sdhci_of_match);
 static struct platform_driver bcm2835_sdhci_driver = {
 	.driver = {
 		.name = "sdhci-bcm2835",
-		.owner = THIS_MODULE,
 		.of_match_table = bcm2835_sdhci_of_match,
 		.pm = SDHCI_PLTFM_PMOPS,
 	},
 	.probe = bcm2835_sdhci_probe,
-	.remove = bcm2835_sdhci_remove,
+	.remove = sdhci_pltfm_unregister,
 };
 module_platform_driver(bcm2835_sdhci_driver);
 

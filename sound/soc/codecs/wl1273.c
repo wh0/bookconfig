@@ -341,8 +341,9 @@ static int wl1273_hw_params(struct snd_pcm_substream *substream,
 	struct wl1273_core *core = wl1273->core;
 	unsigned int rate, width, r;
 
-	if (params_format(params) != SNDRV_PCM_FORMAT_S16_LE) {
-		pr_err("Only SNDRV_PCM_FORMAT_S16_LE supported.\n");
+	if (params_width(params) != 16) {
+		dev_err(dai->dev, "%d bits/sample not supported\n",
+			params_width(params));
 		return -EINVAL;
 	}
 
@@ -451,7 +452,6 @@ static int wl1273_probe(struct snd_soc_codec *codec)
 {
 	struct wl1273_core **core = codec->dev->platform_data;
 	struct wl1273_priv *wl1273;
-	int r;
 
 	dev_dbg(codec->dev, "%s.\n", __func__);
 
@@ -461,22 +461,15 @@ static int wl1273_probe(struct snd_soc_codec *codec)
 	}
 
 	wl1273 = kzalloc(sizeof(struct wl1273_priv), GFP_KERNEL);
-	if (wl1273 == NULL) {
-		dev_err(codec->dev, "Cannot allocate memory.\n");
+	if (!wl1273)
 		return -ENOMEM;
-	}
 
 	wl1273->mode = WL1273_MODE_BT;
 	wl1273->core = *core;
 
 	snd_soc_codec_set_drvdata(codec, wl1273);
 
-	r = snd_soc_add_codec_controls(codec, wl1273_controls,
-				 ARRAY_SIZE(wl1273_controls));
-	if (r)
-		kfree(wl1273);
-
-	return r;
+	return 0;
 }
 
 static int wl1273_remove(struct snd_soc_codec *codec)
@@ -493,6 +486,8 @@ static struct snd_soc_codec_driver soc_codec_dev_wl1273 = {
 	.probe = wl1273_probe,
 	.remove = wl1273_remove,
 
+	.controls = wl1273_controls,
+	.num_controls = ARRAY_SIZE(wl1273_controls),
 	.dapm_widgets = wl1273_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(wl1273_dapm_widgets),
 	.dapm_routes = wl1273_dapm_routes,
@@ -516,7 +511,6 @@ MODULE_ALIAS("platform:wl1273-codec");
 static struct platform_driver wl1273_platform_driver = {
 	.driver		= {
 		.name	= "wl1273-codec",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= wl1273_platform_probe,
 	.remove		= wl1273_platform_remove,

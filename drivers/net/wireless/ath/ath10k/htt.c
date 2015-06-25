@@ -53,7 +53,6 @@ int ath10k_htt_init(struct ath10k *ar)
 	struct ath10k_htt *htt = &ar->htt;
 
 	htt->ar = ar;
-	htt->max_throughput_mbps = 800;
 
 	/*
 	 * Prefetch enough data to satisfy target
@@ -74,12 +73,14 @@ int ath10k_htt_init(struct ath10k *ar)
 
 static int ath10k_htt_verify_version(struct ath10k_htt *htt)
 {
-	ath10k_dbg(ATH10K_DBG_BOOT, "htt target version %d.%d\n",
+	struct ath10k *ar = htt->ar;
+
+	ath10k_dbg(ar, ATH10K_DBG_BOOT, "htt target version %d.%d\n",
 		   htt->target_version_major, htt->target_version_minor);
 
 	if (htt->target_version_major != 2 &&
 	    htt->target_version_major != 3) {
-		ath10k_err("unsupported htt major version %d. supported versions are 2 and 3\n",
+		ath10k_err(ar, "unsupported htt major version %d. supported versions are 2 and 3\n",
 			   htt->target_version_major);
 		return -ENOTSUPP;
 	}
@@ -89,6 +90,7 @@ static int ath10k_htt_verify_version(struct ath10k_htt *htt)
 
 int ath10k_htt_setup(struct ath10k_htt *htt)
 {
+	struct ath10k *ar = htt->ar;
 	int status;
 
 	init_completion(&htt->target_version_received);
@@ -98,9 +100,9 @@ int ath10k_htt_setup(struct ath10k_htt *htt)
 		return status;
 
 	status = wait_for_completion_timeout(&htt->target_version_received,
-						HTT_TARGET_VERSION_TIMEOUT_HZ);
-	if (status <= 0) {
-		ath10k_warn("htt version request timed out\n");
+					     HTT_TARGET_VERSION_TIMEOUT_HZ);
+	if (status == 0) {
+		ath10k_warn(ar, "htt version request timed out\n");
 		return -ETIMEDOUT;
 	}
 

@@ -22,7 +22,6 @@
 #include "xfs_log_format.h"
 #include "xfs_trans_resv.h"
 #include "xfs_sb.h"
-#include "xfs_ag.h"
 #include "xfs_mount.h"
 #include "xfs_da_format.h"
 #include "xfs_da_btree.h"
@@ -40,7 +39,6 @@
 #include "xfs_rtalloc.h"
 #include "xfs_trace.h"
 #include "xfs_log.h"
-#include "xfs_dinode.h"
 #include "xfs_filestream.h"
 
 /*
@@ -168,20 +166,15 @@ xfs_growfs_data_private(
 	nb = in->newblocks;
 	pct = in->imaxpct;
 	if (nb < mp->m_sb.sb_dblocks || pct < 0 || pct > 100)
-		return XFS_ERROR(EINVAL);
+		return -EINVAL;
 	if ((error = xfs_sb_validate_fsb_count(&mp->m_sb, nb)))
 		return error;
 	dpct = pct - mp->m_sb.sb_imax_pct;
-	bp = xfs_buf_read_uncached(mp->m_ddev_targp,
+	error = xfs_buf_read_uncached(mp->m_ddev_targp,
 				XFS_FSB_TO_BB(mp, nb) - XFS_FSS_TO_BB(mp, 1),
-				XFS_FSS_TO_BB(mp, 1), 0, NULL);
-	if (!bp)
-		return EIO;
-	if (bp->b_error) {
-		error = bp->b_error;
-		xfs_buf_relse(bp);
+				XFS_FSS_TO_BB(mp, 1), 0, &bp, NULL);
+	if (error)
 		return error;
-	}
 	xfs_buf_relse(bp);
 
 	new = nb;	/* use new as a temporary here */
@@ -191,7 +184,7 @@ xfs_growfs_data_private(
 		nagcount--;
 		nb = (xfs_rfsblock_t)nagcount * mp->m_sb.sb_agblocks;
 		if (nb < mp->m_sb.sb_dblocks)
-			return XFS_ERROR(EINVAL);
+			return -EINVAL;
 	}
 	new = nb - mp->m_sb.sb_dblocks;
 	oagcount = mp->m_sb.sb_agcount;
@@ -229,7 +222,7 @@ xfs_growfs_data_private(
 				XFS_FSS_TO_BB(mp, 1), 0,
 				&xfs_agf_buf_ops);
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -270,7 +263,7 @@ xfs_growfs_data_private(
 				XFS_FSS_TO_BB(mp, 1), 0,
 				&xfs_agfl_buf_ops);
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -298,7 +291,7 @@ xfs_growfs_data_private(
 				XFS_FSS_TO_BB(mp, 1), 0,
 				&xfs_agi_buf_ops);
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -336,7 +329,7 @@ xfs_growfs_data_private(
 				&xfs_allocbt_buf_ops);
 
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -365,7 +358,7 @@ xfs_growfs_data_private(
 				BTOBB(mp->m_sb.sb_blocksize), 0,
 				&xfs_allocbt_buf_ops);
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -395,7 +388,7 @@ xfs_growfs_data_private(
 				BTOBB(mp->m_sb.sb_blocksize), 0,
 				&xfs_inobt_buf_ops);
 		if (!bp) {
-			error = ENOMEM;
+			error = -ENOMEM;
 			goto error0;
 		}
 
@@ -420,7 +413,7 @@ xfs_growfs_data_private(
 				BTOBB(mp->m_sb.sb_blocksize), 0,
 				&xfs_inobt_buf_ops);
 			if (!bp) {
-				error = ENOMEM;
+				error = -ENOMEM;
 				goto error0;
 			}
 
@@ -495,6 +488,7 @@ xfs_growfs_data_private(
 		xfs_trans_mod_sb(tp, XFS_TRANS_SB_FDBLOCKS, nfree);
 	if (dpct)
 		xfs_trans_mod_sb(tp, XFS_TRANS_SB_IMAXPCT, dpct);
+	xfs_trans_set_sync(tp);
 	error = xfs_trans_commit(tp, 0);
 	if (error)
 		return error;
@@ -531,7 +525,7 @@ xfs_growfs_data_private(
 				bp->b_ops = &xfs_sb_buf_ops;
 				xfs_buf_zero(bp, 0, BBTOB(bp->b_length));
 			} else
-				error = ENOMEM;
+				error = -ENOMEM;
 		}
 
 		/*
@@ -548,7 +542,7 @@ xfs_growfs_data_private(
 			saved_error = error;
 			continue;
 		}
-		xfs_sb_to_disk(XFS_BUF_TO_SBP(bp), &mp->m_sb, XFS_SB_ALL_BITS);
+		xfs_sb_to_disk(XFS_BUF_TO_SBP(bp), &mp->m_sb);
 
 		error = xfs_bwrite(bp);
 		xfs_buf_relse(bp);
@@ -576,17 +570,17 @@ xfs_growfs_log_private(
 
 	nb = in->newblocks;
 	if (nb < XFS_MIN_LOG_BLOCKS || nb < XFS_B_TO_FSB(mp, XFS_MIN_LOG_BYTES))
-		return XFS_ERROR(EINVAL);
+		return -EINVAL;
 	if (nb == mp->m_sb.sb_logblocks &&
 	    in->isint == (mp->m_sb.sb_logstart != 0))
-		return XFS_ERROR(EINVAL);
+		return -EINVAL;
 	/*
 	 * Moving the log is hard, need new interfaces to sync
 	 * the log first, hold off all activity while moving it.
 	 * Can have shorter or longer log in the same space,
 	 * or transform internal to external log or vice versa.
 	 */
-	return XFS_ERROR(ENOSYS);
+	return -ENOSYS;
 }
 
 /*
@@ -604,10 +598,16 @@ xfs_growfs_data(
 	int error;
 
 	if (!capable(CAP_SYS_ADMIN))
-		return XFS_ERROR(EPERM);
+		return -EPERM;
 	if (!mutex_trylock(&mp->m_growlock))
-		return XFS_ERROR(EWOULDBLOCK);
+		return -EWOULDBLOCK;
 	error = xfs_growfs_data_private(mp, in);
+	/*
+	 * Increment the generation unconditionally, the error could be from
+	 * updating the secondary superblocks, in which case the new size
+	 * is live already.
+	 */
+	mp->m_generation++;
 	mutex_unlock(&mp->m_growlock);
 	return error;
 }
@@ -620,9 +620,9 @@ xfs_growfs_log(
 	int error;
 
 	if (!capable(CAP_SYS_ADMIN))
-		return XFS_ERROR(EPERM);
+		return -EPERM;
 	if (!mutex_trylock(&mp->m_growlock))
-		return XFS_ERROR(EWOULDBLOCK);
+		return -EWOULDBLOCK;
 	error = xfs_growfs_log_private(mp, in);
 	mutex_unlock(&mp->m_growlock);
 	return error;
@@ -637,12 +637,13 @@ xfs_fs_counts(
 	xfs_mount_t		*mp,
 	xfs_fsop_counts_t	*cnt)
 {
-	xfs_icsb_sync_counters(mp, XFS_ICSB_LAZY_COUNT);
+	cnt->allocino = percpu_counter_read_positive(&mp->m_icount);
+	cnt->freeino = percpu_counter_read_positive(&mp->m_ifree);
+	cnt->freedata = percpu_counter_read_positive(&mp->m_fdblocks) -
+							XFS_ALLOC_SET_ASIDE(mp);
+
 	spin_lock(&mp->m_sb_lock);
-	cnt->freedata = mp->m_sb.sb_fdblocks - XFS_ALLOC_SET_ASIDE(mp);
 	cnt->freertx = mp->m_sb.sb_frextents;
-	cnt->freeino = mp->m_sb.sb_ifree;
-	cnt->allocino = mp->m_sb.sb_icount;
 	spin_unlock(&mp->m_sb_lock);
 	return 0;
 }
@@ -674,7 +675,7 @@ xfs_reserve_blocks(
 	/* If inval is null, report current values and return */
 	if (inval == (__uint64_t *)NULL) {
 		if (!outval)
-			return EINVAL;
+			return -EINVAL;
 		outval->resblks = mp->m_resblks;
 		outval->resblks_avail = mp->m_resblks_avail;
 		return 0;
@@ -692,14 +693,9 @@ xfs_reserve_blocks(
 	 * what to do. This means that the amount of free space can
 	 * change while we do this, so we need to retry if we end up
 	 * trying to reserve more space than is available.
-	 *
-	 * We also use the xfs_mod_incore_sb() interface so that we
-	 * don't have to care about whether per cpu counter are
-	 * enabled, disabled or even compiled in....
 	 */
 retry:
 	spin_lock(&mp->m_sb_lock);
-	xfs_icsb_sync_counters_locked(mp, 0);
 
 	/*
 	 * If our previous reservation was larger than the current value,
@@ -716,7 +712,8 @@ retry:
 	} else {
 		__int64_t	free;
 
-		free =  mp->m_sb.sb_fdblocks - XFS_ALLOC_SET_ASIDE(mp);
+		free = percpu_counter_sum(&mp->m_fdblocks) -
+							XFS_ALLOC_SET_ASIDE(mp);
 		if (!free)
 			goto out; /* ENOSPC and fdblks_delta = 0 */
 
@@ -755,43 +752,11 @@ out:
 		 * the extra reserve blocks from the reserve.....
 		 */
 		int error;
-		error = xfs_icsb_modify_counters(mp, XFS_SBS_FDBLOCKS,
-						 fdblks_delta, 0);
-		if (error == ENOSPC)
+		error = xfs_mod_fdblocks(mp, fdblks_delta, 0);
+		if (error == -ENOSPC)
 			goto retry;
 	}
 	return 0;
-}
-
-/*
- * Dump a transaction into the log that contains no real change. This is needed
- * to be able to make the log dirty or stamp the current tail LSN into the log
- * during the covering operation.
- *
- * We cannot use an inode here for this - that will push dirty state back up
- * into the VFS and then periodic inode flushing will prevent log covering from
- * making progress. Hence we log a field in the superblock instead and use a
- * synchronous transaction to ensure the superblock is immediately unpinned
- * and can be written back.
- */
-int
-xfs_fs_log_dummy(
-	xfs_mount_t	*mp)
-{
-	xfs_trans_t	*tp;
-	int		error;
-
-	tp = _xfs_trans_alloc(mp, XFS_TRANS_DUMMY1, KM_SLEEP);
-	error = xfs_trans_reserve(tp, &M_RES(mp)->tr_sb, 0, 0);
-	if (error) {
-		xfs_trans_cancel(tp, 0);
-		return error;
-	}
-
-	/* log the UUID because it is an unchanging field */
-	xfs_mod_sb(tp, XFS_SB_UUID);
-	xfs_trans_set_sync(tp);
-	return xfs_trans_commit(tp, 0);
 }
 
 int
@@ -818,7 +783,7 @@ xfs_fs_goingdown(
 				SHUTDOWN_FORCE_UMOUNT | SHUTDOWN_LOG_IO_ERROR);
 		break;
 	default:
-		return XFS_ERROR(EINVAL);
+		return -EINVAL;
 	}
 
 	return 0;

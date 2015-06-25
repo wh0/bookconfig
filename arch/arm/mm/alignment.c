@@ -77,6 +77,7 @@
 
 static unsigned long ai_user;
 static unsigned long ai_sys;
+static void *ai_sys_last_pc;
 static unsigned long ai_skipped;
 static unsigned long ai_half;
 static unsigned long ai_word;
@@ -112,7 +113,7 @@ static int safe_usermode(int new_usermode, bool warn)
 		new_usermode |= UM_FIXUP;
 
 		if (warn)
-			printk(KERN_WARNING "alignment: ignoring faults is unsafe on this CPU.  Defaulting to fixup mode.\n");
+			pr_warn("alignment: ignoring faults is unsafe on this CPU.  Defaulting to fixup mode.\n");
 	}
 
 	return new_usermode;
@@ -131,7 +132,7 @@ static const char *usermode_action[] = {
 static int alignment_proc_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "User:\t\t%lu\n", ai_user);
-	seq_printf(m, "System:\t\t%lu\n", ai_sys);
+	seq_printf(m, "System:\t\t%lu (%pF)\n", ai_sys, ai_sys_last_pc);
 	seq_printf(m, "Skipped:\t%lu\n", ai_skipped);
 	seq_printf(m, "Half:\t\t%lu\n", ai_half);
 	seq_printf(m, "Word:\t\t%lu\n", ai_word);
@@ -200,7 +201,7 @@ union offset_union {
  THUMB(	"1:	"ins"	%1, [%2]\n"	)		\
  THUMB(	"	add	%2, %2, #1\n"	)		\
 	"2:\n"						\
-	"	.pushsection .fixup,\"ax\"\n"		\
+	"	.pushsection .text.fixup,\"ax\"\n"	\
 	"	.align	2\n"				\
 	"3:	mov	%0, #1\n"			\
 	"	b	2b\n"				\
@@ -260,7 +261,7 @@ union offset_union {
 		"	mov	%1, %1, "NEXT_BYTE"\n"		\
 		"2:	"ins"	%1, [%2]\n"			\
 		"3:\n"						\
-		"	.pushsection .fixup,\"ax\"\n"		\
+		"	.pushsection .text.fixup,\"ax\"\n"	\
 		"	.align	2\n"				\
 		"4:	mov	%0, #1\n"			\
 		"	b	3b\n"				\
@@ -300,7 +301,7 @@ union offset_union {
 		"	mov	%1, %1, "NEXT_BYTE"\n"		\
 		"4:	"ins"	%1, [%2]\n"			\
 		"5:\n"						\
-		"	.pushsection .fixup,\"ax\"\n"		\
+		"	.pushsection .text.fixup,\"ax\"\n"	\
 		"	.align	2\n"				\
 		"6:	mov	%0, #1\n"			\
 		"	b	5b\n"				\
@@ -522,7 +523,7 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr, struct pt_regs *reg
 	 * processor for us.
 	 */
 	if (addr != eaddr) {
-		printk(KERN_ERR "LDMSTM: PC = %08lx, instr = %08lx, "
+		pr_err("LDMSTM: PC = %08lx, instr = %08lx, "
 			"addr = %08lx, eaddr = %08lx\n",
 			 instruction_pointer(regs), instr, addr, eaddr);
 		show_regs(regs);
@@ -566,7 +567,7 @@ fault:
 	return TYPE_FAULT;
 
 bad:
-	printk(KERN_ERR "Alignment trap: not handling ldm with s-bit set\n");
+	pr_err("Alignment trap: not handling ldm with s-bit set\n");
 	return TYPE_ERROR;
 }
 
@@ -795,6 +796,7 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 		goto user;
 
 	ai_sys += 1;
+	ai_sys_last_pc = (void *)instruction_pointer(regs);
 
  fixup:
 
@@ -897,13 +899,13 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	return 0;
 
  swp:
-	printk(KERN_ERR "Alignment trap: not handling swp instruction\n");
+	pr_err("Alignment trap: not handling swp instruction\n");
 
  bad:
 	/*
 	 * Oops, we didn't handle the instruction.
 	 */
-	printk(KERN_ERR "Alignment trap: not handling instruction "
+	pr_err("Alignment trap: not handling instruction "
 		"%0*lx at [<%08lx>]\n",
 		isize << 1,
 		isize == 2 ? tinstr : instr, instrptr);

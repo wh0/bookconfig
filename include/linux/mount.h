@@ -61,6 +61,7 @@ struct mnt_namespace;
 #define MNT_DOOMED		0x1000000
 #define MNT_SYNC_UMOUNT		0x2000000
 #define MNT_MARKED		0x4000000
+#define MNT_UMOUNT		0x8000000
 
 struct vfsmount {
 	struct dentry *mnt_root;	/* root of the mounted tree */
@@ -69,6 +70,7 @@ struct vfsmount {
 };
 
 struct file; /* forward dec */
+struct path;
 
 extern int mnt_want_write(struct vfsmount *mnt);
 extern int mnt_want_write_file(struct file *file);
@@ -77,9 +79,11 @@ extern void mnt_drop_write(struct vfsmount *mnt);
 extern void mnt_drop_write_file(struct file *file);
 extern void mntput(struct vfsmount *mnt);
 extern struct vfsmount *mntget(struct vfsmount *mnt);
-extern void mnt_pin(struct vfsmount *mnt);
-extern void mnt_unpin(struct vfsmount *mnt);
+extern struct vfsmount *mnt_clone_internal(struct path *path);
 extern int __mnt_is_readonly(struct vfsmount *mnt);
+
+struct path;
+extern struct vfsmount *clone_private_mount(struct path *path);
 
 struct file_system_type;
 extern struct vfsmount *vfs_kern_mount(struct file_system_type *type,
@@ -89,6 +93,6 @@ extern struct vfsmount *vfs_kern_mount(struct file_system_type *type,
 extern void mnt_set_expiry(struct vfsmount *mnt, struct list_head *expiry_list);
 extern void mark_mounts_for_expiry(struct list_head *mounts);
 
-extern dev_t name_to_dev_t(char *name);
+extern dev_t name_to_dev_t(const char *name);
 
 #endif /* _LINUX_MOUNT_H */

@@ -27,14 +27,13 @@
 
 #include "udfdecl.h"
 #include <linux/fs.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/string.h> /* memset */
 #include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/pagemap.h>
-#include <linux/buffer_head.h>
-#include <linux/aio.h>
+#include <linux/uio.h>
 
 #include "udf_i.h"
 #include "udf_sb.h"
@@ -100,26 +99,7 @@ static int udf_adinicb_write_begin(struct file *file,
 	return 0;
 }
 
-static int udf_adinicb_write_end(struct file *file,
-			struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned copied,
-			struct page *page, void *fsdata)
-{
-	struct inode *inode = mapping->host;
-	unsigned offset = pos & (PAGE_CACHE_SIZE - 1);
-	char *kaddr;
-	struct udf_inode_info *iinfo = UDF_I(inode);
-
-	kaddr = kmap_atomic(page);
-	memcpy(iinfo->i_ext.i_data + iinfo->i_lenEAttr + offset,
-		kaddr + offset, copied);
-	kunmap_atomic(kaddr);
-
-	return simple_write_end(file, mapping, pos, len, copied, page, fsdata);
-}
-
-static ssize_t udf_adinicb_direct_IO(int rw, struct kiocb *iocb,
-				     struct iov_iter *iter,
+static ssize_t udf_adinicb_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 				     loff_t offset)
 {
 	/* Fallback to buffered I/O. */
@@ -130,7 +110,7 @@ const struct address_space_operations udf_adinicb_aops = {
 	.readpage	= udf_adinicb_readpage,
 	.writepage	= udf_adinicb_writepage,
 	.write_begin	= udf_adinicb_write_begin,
-	.write_end	= udf_adinicb_write_end,
+	.write_end	= simple_write_end,
 	.direct_IO	= udf_adinicb_direct_IO,
 };
 
@@ -139,21 +119,21 @@ static ssize_t udf_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t retval;
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file_inode(file);
-	int err, pos;
-	size_t count = iocb->ki_nbytes;
 	struct udf_inode_info *iinfo = UDF_I(inode);
+	int err;
 
 	mutex_lock(&inode->i_mutex);
+
+	retval = generic_write_checks(iocb, from);
+	if (retval <= 0)
+		goto out;
+
 	down_write(&iinfo->i_data_sem);
 	if (iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB) {
-		if (file->f_flags & O_APPEND)
-			pos = inode->i_size;
-		else
-			pos = iocb->ki_pos;
+		loff_t end = iocb->ki_pos + iov_iter_count(from);
 
 		if (inode->i_sb->s_blocksize <
-				(udf_file_entry_alloc_offset(inode) +
-						pos + count)) {
+				(udf_file_entry_alloc_offset(inode) + end)) {
 			err = udf_expand_file_adinicb(inode);
 			if (err) {
 				mutex_unlock(&inode->i_mutex);
@@ -161,16 +141,14 @@ static ssize_t udf_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 				return err;
 			}
 		} else {
-			if (pos + count > inode->i_size)
-				iinfo->i_lenAlloc = pos + count;
-			else
-				iinfo->i_lenAlloc = inode->i_size;
+			iinfo->i_lenAlloc = max(end, inode->i_size);
 			up_write(&iinfo->i_data_sem);
 		}
 	} else
 		up_write(&iinfo->i_data_sem);
 
 	retval = __generic_file_write_iter(iocb, from);
+out:
 	mutex_unlock(&inode->i_mutex);
 
 	if (retval > 0) {
@@ -241,22 +219,27 @@ out:
 
 static int udf_release_file(struct inode *inode, struct file *filp)
 {
-	if (filp->f_mode & FMODE_WRITE) {
+	if (filp->f_mode & FMODE_WRITE &&
+	    atomic_read(&inode->i_writecount) == 1) {
+		/*
+		 * Grab i_mutex to avoid races with writes changing i_size
+		 * while we are running.
+		 */
+		mutex_lock(&inode->i_mutex);
 		down_write(&UDF_I(inode)->i_data_sem);
 		udf_discard_prealloc(inode);
 		udf_truncate_tail_extent(inode);
 		up_write(&UDF_I(inode)->i_data_sem);
+		mutex_unlock(&inode->i_mutex);
 	}
 	return 0;
 }
 
 const struct file_operations udf_file_operations = {
-	.read			= new_sync_read,
 	.read_iter		= generic_file_read_iter,
 	.unlocked_ioctl		= udf_ioctl,
 	.open			= generic_file_open,
 	.mmap			= generic_file_mmap,
-	.write			= new_sync_write,
 	.write_iter		= udf_file_write_iter,
 	.release		= udf_release_file,
 	.fsync			= generic_file_fsync,
@@ -266,7 +249,7 @@ const struct file_operations udf_file_operations = {
 
 static int udf_setattr(struct dentry *dentry, struct iattr *attr)
 {
-	struct inode *inode = dentry->d_inode;
+	struct inode *inode = d_inode(dentry);
 	int error;
 
 	error = inode_change_ok(inode, attr);

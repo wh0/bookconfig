@@ -174,17 +174,12 @@ extern int hib_wait_on_bio_chain(struct bio **bio_chain);
 
 struct timeval;
 /* kernel/power/swsusp.c */
-extern void swsusp_show_speed(struct timeval *, struct timeval *,
-				unsigned int, char *);
+extern void swsusp_show_speed(ktime_t, ktime_t, unsigned int, char *);
 
 #ifdef CONFIG_SUSPEND
-struct pm_sleep_state {
-	const char *label;
-	suspend_state_t state;
-};
-
 /* kernel/power/suspend.c */
-extern struct pm_sleep_state pm_states[];
+extern const char *pm_labels[];
+extern const char *pm_states[];
 
 extern int suspend_devices_and_enter(suspend_state_t state);
 #else /* !CONFIG_SUSPEND */

@@ -41,14 +41,14 @@
 #error Do not #include this file directly. #include <obd.h> instead
 #endif
 
-#include <obd_support.h>
+#include "../obd_support.h"
 
 # include <linux/fs.h>
 # include <linux/list.h>
 # include <linux/sched.h>  /* for struct task_struct, for current.h */
 # include <linux/proc_fs.h>
 # include <linux/mount.h>
-# include <linux/lustre_intent.h>
+#include "../lustre_intent.h"
 
 struct ll_iattr {
 	struct iattr	iattr;
@@ -87,8 +87,7 @@ static inline void __client_obd_list_lock(client_obd_lock_t *lock,
 			if (task == NULL)
 				continue;
 
-			LCONSOLE_WARN("%s:%d: lock %p was acquired"
-				      " by <%s:%d:%s:%d> for %lu seconds.\n",
+			LCONSOLE_WARN("%s:%d: lock %p was acquired by <%s:%d:%s:%d> for %lu seconds.\n",
 				      current->comm, current->pid,
 				      lock, task->comm, task->pid,
 				      lock->func, lock->line,

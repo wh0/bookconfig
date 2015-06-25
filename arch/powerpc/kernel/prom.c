@@ -155,12 +155,17 @@ static struct ibm_pa_feature {
 } ibm_pa_features[] __initdata = {
 	{0, 0, PPC_FEATURE_HAS_MMU,	0, 0, 0},
 	{0, 0, PPC_FEATURE_HAS_FPU,	0, 1, 0},
-	{0, MMU_FTR_SLB, 0,		0, 2, 0},
 	{CPU_FTR_CTRL, 0, 0,		0, 3, 0},
 	{CPU_FTR_NOEXECUTE, 0, 0,	0, 6, 0},
 	{CPU_FTR_NODSISRALIGN, 0, 0,	1, 1, 1},
 	{0, MMU_FTR_CI_LARGE_PAGE, 0,	1, 2, 0},
 	{CPU_FTR_REAL_LE, PPC_FEATURE_TRUE_LE, 5, 0, 0},
+	/*
+	 * If the kernel doesn't support TM (ie. CONFIG_PPC_TRANSACTIONAL_MEM=n),
+	 * we don't want to turn on CPU_FTR_TM here, so we use CPU_FTR_TM_COMP
+	 * which is 0 if the kernel doesn't support TM.
+	 */
+	{CPU_FTR_TM_COMP, 0, 0,		22, 0, 0},
 };
 
 static void __init scan_features(unsigned long node, const unsigned char *ftrs,
@@ -309,12 +314,10 @@ static int __init early_init_dt_scan_cpus(unsigned long node,
 
 	/* Get physical cpuid */
 	intserv = of_get_flat_dt_prop(node, "ibm,ppc-interrupt-server#s", &len);
-	if (intserv) {
-		nthreads = len / sizeof(int);
-	} else {
-		intserv = of_get_flat_dt_prop(node, "reg", NULL);
-		nthreads = 1;
-	}
+	if (!intserv)
+		intserv = of_get_flat_dt_prop(node, "reg", &len);
+
+	nthreads = len / sizeof(int);
 
 	/*
 	 * Now see if any of these threads match our boot cpu.
@@ -389,8 +392,9 @@ static int __init early_init_dt_scan_cpus(unsigned long node,
 	return 0;
 }
 
-int __init early_init_dt_scan_chosen_ppc(unsigned long node, const char *uname,
-					 int depth, void *data)
+static int __init early_init_dt_scan_chosen_ppc(unsigned long node,
+						const char *uname,
+						int depth, void *data)
 {
 	const unsigned long *lprop; /* All these set by kernel, so no need to convert endian */
 
@@ -644,8 +648,9 @@ void __init early_init_devtree(void *params)
 
 	DBG(" -> early_init_devtree(%p)\n", params);
 
-	/* Setup flat device-tree pointer */
-	initial_boot_params = params;
+	/* Too early to BUG_ON(), do it by hand */
+	if (!early_init_dt_verify(params))
+		panic("BUG: Failed verifying flat device tree, bad version?");
 
 #ifdef CONFIG_PPC_RTAS
 	/* Some machines might need RTAS info for debugging, grab it now. */
@@ -666,14 +671,12 @@ void __init early_init_devtree(void *params)
 	 * device-tree, including the platform type, initrd location and
 	 * size, TCE reserve, and more ...
 	 */
-	of_scan_flat_dt(early_init_dt_scan_chosen_ppc, cmd_line);
+	of_scan_flat_dt(early_init_dt_scan_chosen_ppc, boot_command_line);
 
 	/* Scan memory nodes and rebuild MEMBLOCKs */
 	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 	of_scan_flat_dt(early_init_dt_scan_memory_ppc, NULL);
 
-	/* Save command line for /proc/cmdline and then parse parameters */
-	strlcpy(boot_command_line, cmd_line, COMMAND_LINE_SIZE);
 	parse_early_param();
 
 	/* make sure we've parsed cmdline for mem= before this */
@@ -696,10 +699,7 @@ void __init early_init_devtree(void *params)
 		reserve_crashkernel();
 	early_reserve_mem();
 
-	/*
-	 * Ensure that total memory size is page-aligned, because otherwise
-	 * mark_bootmem() gets upset.
-	 */
+	/* Ensure that total memory size is page-aligned. */
 	limit = ALIGN(memory_limit ?: memblock_phys_mem_size(), PAGE_SIZE);
 	memblock_enforce_memory_limit(limit);
 
@@ -721,7 +721,7 @@ void __init early_init_devtree(void *params)
 	 */
 	of_scan_flat_dt(early_init_dt_scan_cpus, NULL);
 	if (boot_cpuid < 0) {
-		printk("Failed to indentify boot CPU !\n");
+		printk("Failed to identify boot CPU !\n");
 		BUG();
 	}
 
@@ -820,76 +820,6 @@ int cpu_to_chip_id(int cpu)
 	return of_get_ibm_chip_id(np);
 }
 EXPORT_SYMBOL(cpu_to_chip_id);
-
-#ifdef CONFIG_PPC_PSERIES
-/*
- * Fix up the uninitialized fields in a new device node:
- * name, type and pci-specific fields
- */
-
-static int of_finish_dynamic_node(struct device_node *node)
-{
-	struct device_node *parent = of_get_parent(node);
-	int err = 0;
-	const phandle *ibm_phandle;
-
-	node->name = of_get_property(node, "name", NULL);
-	node->type = of_get_property(node, "device_type", NULL);
-
-	if (!node->name)
-		node->name = "<NULL>";
-	if (!node->type)
-		node->type = "<NULL>";
-
-	if (!parent) {
-		err = -ENODEV;
-		goto out;
-	}
-
-	/* We don't support that function on PowerMac, at least
-	 * not yet
-	 */
-	if (machine_is(powermac))
-		return -ENODEV;
-
-	/* fix up new node's phandle field */
-	if ((ibm_phandle = of_get_property(node, "ibm,phandle", NULL)))
-		node->phandle = *ibm_phandle;
-
-out:
-	of_node_put(parent);
-	return err;
-}
-
-static int prom_reconfig_notifier(struct notifier_block *nb,
-				  unsigned long action, void *node)
-{
-	int err;
-
-	switch (action) {
-	case OF_RECONFIG_ATTACH_NODE:
-		err = of_finish_dynamic_node(node);
-		if (err < 0)
-			printk(KERN_ERR "finish_node returned %d\n", err);
-		break;
-	default:
-		err = 0;
-		break;
-	}
-	return notifier_from_errno(err);
-}
-
-static struct notifier_block prom_reconfig_nb = {
-	.notifier_call = prom_reconfig_notifier,
-	.priority = 10, /* This one needs to run first */
-};
-
-static int __init prom_reconfig_setup(void)
-{
-	return of_reconfig_notifier_register(&prom_reconfig_nb);
-}
-__initcall(prom_reconfig_setup);
-#endif
 
 bool arch_match_cpu_phys_id(int cpu, u64 phys_id)
 {

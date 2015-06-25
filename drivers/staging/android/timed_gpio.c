@@ -20,6 +20,7 @@
 #include <linux/hrtimer.h>
 #include <linux/err.h>
 #include <linux/gpio.h>
+#include <linux/ktime.h>
 
 #include "timed_output.h"
 #include "timed_gpio.h"
@@ -45,16 +46,17 @@ static enum hrtimer_restart gpio_timer_func(struct hrtimer *timer)
 
 static int gpio_get_time(struct timed_output_dev *dev)
 {
-	struct timed_gpio_data	*data =
-		container_of(dev, struct timed_gpio_data, dev);
+	struct timed_gpio_data *data;
+	ktime_t t;
 
-	if (hrtimer_active(&data->timer)) {
-		ktime_t r = hrtimer_get_remaining(&data->timer);
-		struct timeval t = ktime_to_timeval(r);
+	data = container_of(dev, struct timed_gpio_data, dev);
 
-		return t.tv_sec * 1000 + t.tv_usec / 1000;
-	} else
+	if (!hrtimer_active(&data->timer))
 		return 0;
+
+	t = hrtimer_get_remaining(&data->timer);
+
+	return ktime_to_ms(t);
 }
 
 static void gpio_enable(struct timed_output_dev *dev, int value)
@@ -156,7 +158,6 @@ static struct platform_driver timed_gpio_driver = {
 	.remove		= timed_gpio_remove,
 	.driver		= {
 		.name		= TIMED_GPIO_NAME,
-		.owner		= THIS_MODULE,
 	},
 };
 

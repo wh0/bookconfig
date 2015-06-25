@@ -6,6 +6,7 @@
  * GPL LICENSE SUMMARY
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -31,6 +32,7 @@
  * BSD LICENSE
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,8 +67,8 @@
 #include "fw-api.h"
 #include "mvm.h"
 
-/* Maps the driver specific channel width definition to the the fw values */
-static inline u8 iwl_mvm_get_channel_width(struct cfg80211_chan_def *chandef)
+/* Maps the driver specific channel width definition to the fw values */
+u8 iwl_mvm_get_channel_width(struct cfg80211_chan_def *chandef)
 {
 	switch (chandef->width) {
 	case NL80211_CHAN_WIDTH_20_NOHT:
@@ -88,7 +90,7 @@ static inline u8 iwl_mvm_get_channel_width(struct cfg80211_chan_def *chandef)
  * Maps the driver specific control channel position (relative to the center
  * freq) definitions to the the fw values
  */
-static inline u8 iwl_mvm_get_ctrl_pos(struct cfg80211_chan_def *chandef)
+u8 iwl_mvm_get_ctrl_pos(struct cfg80211_chan_def *chandef)
 {
 	switch (chandef->chan->center_freq - chandef->center_freq1) {
 	case -70:
@@ -168,13 +170,17 @@ static void iwl_mvm_phy_ctxt_cmd_data(struct iwl_mvm *mvm,
 		active_cnt = 2;
 	}
 
-	cmd->rxchain_info = cpu_to_le32(mvm->fw->valid_rx_ant <<
+	cmd->rxchain_info = cpu_to_le32(iwl_mvm_get_valid_rx_ant(mvm) <<
 					PHY_RX_CHAIN_VALID_POS);
 	cmd->rxchain_info |= cpu_to_le32(idle_cnt << PHY_RX_CHAIN_CNT_POS);
 	cmd->rxchain_info |= cpu_to_le32(active_cnt <<
 					 PHY_RX_CHAIN_MIMO_CNT_POS);
+#ifdef CONFIG_IWLWIFI_DEBUGFS
+	if (unlikely(mvm->dbgfs_rx_phyinfo))
+		cmd->rxchain_info = cpu_to_le32(mvm->dbgfs_rx_phyinfo);
+#endif
 
-	cmd->txchain_info = cpu_to_le32(mvm->fw->valid_tx_ant);
+	cmd->txchain_info = cpu_to_le32(iwl_mvm_get_valid_tx_ant(mvm));
 }
 
 /*
@@ -260,4 +266,30 @@ void iwl_mvm_phy_ctxt_unref(struct iwl_mvm *mvm, struct iwl_mvm_phy_ctxt *ctxt)
 		return;
 
 	ctxt->ref--;
+}
+
+static void iwl_mvm_binding_iterator(void *_data, u8 *mac,
+				     struct ieee80211_vif *vif)
+{
+	unsigned long *data = _data;
+	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
+
+	if (!mvmvif->phy_ctxt)
+		return;
+
+	if (vif->type == NL80211_IFTYPE_STATION ||
+	    vif->type == NL80211_IFTYPE_AP)
+		__set_bit(mvmvif->phy_ctxt->id, data);
+}
+
+int iwl_mvm_phy_ctx_count(struct iwl_mvm *mvm)
+{
+	unsigned long phy_ctxt_counter = 0;
+
+	ieee80211_iterate_active_interfaces_atomic(mvm->hw,
+						   IEEE80211_IFACE_ITER_NORMAL,
+						   iwl_mvm_binding_iterator,
+						   &phy_ctxt_counter);
+
+	return hweight8(phy_ctxt_counter);
 }

@@ -27,11 +27,13 @@
 #include "drmP.h"
 #include "radeon.h"
 #include "radeon_asic.h"
+#include "radeon_audio.h"
 #include "cikd.h"
 #include "atom.h"
 #include "cik_blit_shaders.h"
 #include "radeon_ucode.h"
 #include "clearstate_ci.h"
+#include "radeon_kfd.h"
 
 MODULE_FIRMWARE("radeon/BONAIRE_pfp.bin");
 MODULE_FIRMWARE("radeon/BONAIRE_me.bin");
@@ -42,6 +44,16 @@ MODULE_FIRMWARE("radeon/BONAIRE_mc2.bin");
 MODULE_FIRMWARE("radeon/BONAIRE_rlc.bin");
 MODULE_FIRMWARE("radeon/BONAIRE_sdma.bin");
 MODULE_FIRMWARE("radeon/BONAIRE_smc.bin");
+
+MODULE_FIRMWARE("radeon/bonaire_pfp.bin");
+MODULE_FIRMWARE("radeon/bonaire_me.bin");
+MODULE_FIRMWARE("radeon/bonaire_ce.bin");
+MODULE_FIRMWARE("radeon/bonaire_mec.bin");
+MODULE_FIRMWARE("radeon/bonaire_mc.bin");
+MODULE_FIRMWARE("radeon/bonaire_rlc.bin");
+MODULE_FIRMWARE("radeon/bonaire_sdma.bin");
+MODULE_FIRMWARE("radeon/bonaire_smc.bin");
+
 MODULE_FIRMWARE("radeon/HAWAII_pfp.bin");
 MODULE_FIRMWARE("radeon/HAWAII_me.bin");
 MODULE_FIRMWARE("radeon/HAWAII_ce.bin");
@@ -51,24 +63,58 @@ MODULE_FIRMWARE("radeon/HAWAII_mc2.bin");
 MODULE_FIRMWARE("radeon/HAWAII_rlc.bin");
 MODULE_FIRMWARE("radeon/HAWAII_sdma.bin");
 MODULE_FIRMWARE("radeon/HAWAII_smc.bin");
+
+MODULE_FIRMWARE("radeon/hawaii_pfp.bin");
+MODULE_FIRMWARE("radeon/hawaii_me.bin");
+MODULE_FIRMWARE("radeon/hawaii_ce.bin");
+MODULE_FIRMWARE("radeon/hawaii_mec.bin");
+MODULE_FIRMWARE("radeon/hawaii_mc.bin");
+MODULE_FIRMWARE("radeon/hawaii_rlc.bin");
+MODULE_FIRMWARE("radeon/hawaii_sdma.bin");
+MODULE_FIRMWARE("radeon/hawaii_smc.bin");
+
 MODULE_FIRMWARE("radeon/KAVERI_pfp.bin");
 MODULE_FIRMWARE("radeon/KAVERI_me.bin");
 MODULE_FIRMWARE("radeon/KAVERI_ce.bin");
 MODULE_FIRMWARE("radeon/KAVERI_mec.bin");
 MODULE_FIRMWARE("radeon/KAVERI_rlc.bin");
 MODULE_FIRMWARE("radeon/KAVERI_sdma.bin");
+
+MODULE_FIRMWARE("radeon/kaveri_pfp.bin");
+MODULE_FIRMWARE("radeon/kaveri_me.bin");
+MODULE_FIRMWARE("radeon/kaveri_ce.bin");
+MODULE_FIRMWARE("radeon/kaveri_mec.bin");
+MODULE_FIRMWARE("radeon/kaveri_mec2.bin");
+MODULE_FIRMWARE("radeon/kaveri_rlc.bin");
+MODULE_FIRMWARE("radeon/kaveri_sdma.bin");
+
 MODULE_FIRMWARE("radeon/KABINI_pfp.bin");
 MODULE_FIRMWARE("radeon/KABINI_me.bin");
 MODULE_FIRMWARE("radeon/KABINI_ce.bin");
 MODULE_FIRMWARE("radeon/KABINI_mec.bin");
 MODULE_FIRMWARE("radeon/KABINI_rlc.bin");
 MODULE_FIRMWARE("radeon/KABINI_sdma.bin");
+
+MODULE_FIRMWARE("radeon/kabini_pfp.bin");
+MODULE_FIRMWARE("radeon/kabini_me.bin");
+MODULE_FIRMWARE("radeon/kabini_ce.bin");
+MODULE_FIRMWARE("radeon/kabini_mec.bin");
+MODULE_FIRMWARE("radeon/kabini_rlc.bin");
+MODULE_FIRMWARE("radeon/kabini_sdma.bin");
+
 MODULE_FIRMWARE("radeon/MULLINS_pfp.bin");
 MODULE_FIRMWARE("radeon/MULLINS_me.bin");
 MODULE_FIRMWARE("radeon/MULLINS_ce.bin");
 MODULE_FIRMWARE("radeon/MULLINS_mec.bin");
 MODULE_FIRMWARE("radeon/MULLINS_rlc.bin");
 MODULE_FIRMWARE("radeon/MULLINS_sdma.bin");
+
+MODULE_FIRMWARE("radeon/mullins_pfp.bin");
+MODULE_FIRMWARE("radeon/mullins_me.bin");
+MODULE_FIRMWARE("radeon/mullins_ce.bin");
+MODULE_FIRMWARE("radeon/mullins_mec.bin");
+MODULE_FIRMWARE("radeon/mullins_rlc.bin");
+MODULE_FIRMWARE("radeon/mullins_sdma.bin");
 
 extern int r600_ih_ring_alloc(struct radeon_device *rdev);
 extern void r600_ih_ring_fini(struct radeon_device *rdev);
@@ -94,6 +140,39 @@ static void cik_fini_pg(struct radeon_device *rdev);
 static void cik_fini_cg(struct radeon_device *rdev);
 static void cik_enable_gui_idle_interrupt(struct radeon_device *rdev,
 					  bool enable);
+
+/**
+ * cik_get_allowed_info_register - fetch the register for the info ioctl
+ *
+ * @rdev: radeon_device pointer
+ * @reg: register offset in bytes
+ * @val: register value
+ *
+ * Returns 0 for success or -EINVAL for an invalid register
+ *
+ */
+int cik_get_allowed_info_register(struct radeon_device *rdev,
+				  u32 reg, u32 *val)
+{
+	switch (reg) {
+	case GRBM_STATUS:
+	case GRBM_STATUS2:
+	case GRBM_STATUS_SE0:
+	case GRBM_STATUS_SE1:
+	case GRBM_STATUS_SE2:
+	case GRBM_STATUS_SE3:
+	case SRBM_STATUS:
+	case SRBM_STATUS2:
+	case (SDMA0_STATUS_REG + SDMA0_REGISTER_OFFSET):
+	case (SDMA0_STATUS_REG + SDMA1_REGISTER_OFFSET):
+	case UVD_STATUS:
+	/* TODO VCE */
+		*val = RREG32(reg);
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
 
 /* get temperature in millidegrees */
 int ci_get_temp(struct radeon_device *rdev)
@@ -1519,6 +1598,8 @@ static const u32 godavari_golden_registers[] =
 
 static void cik_init_golden_registers(struct radeon_device *rdev)
 {
+	/* Some of the registers might be dependent on GRBM_GFX_INDEX */
+	mutex_lock(&rdev->grbm_idx_mutex);
 	switch (rdev->family) {
 	case CHIP_BONAIRE:
 		radeon_program_register_sequence(rdev,
@@ -1593,6 +1674,7 @@ static void cik_init_golden_registers(struct radeon_device *rdev)
 	default:
 		break;
 	}
+	mutex_unlock(&rdev->grbm_idx_mutex);
 }
 
 /**
@@ -1760,27 +1842,44 @@ static void cik_srbm_select(struct radeon_device *rdev,
  */
 int ci_mc_load_microcode(struct radeon_device *rdev)
 {
-	const __be32 *fw_data;
-	u32 running, blackout = 0;
-	u32 *io_mc_regs;
+	const __be32 *fw_data = NULL;
+	const __le32 *new_fw_data = NULL;
+	u32 running, blackout = 0, tmp;
+	u32 *io_mc_regs = NULL;
+	const __le32 *new_io_mc_regs = NULL;
 	int i, regs_size, ucode_size;
 
 	if (!rdev->mc_fw)
 		return -EINVAL;
 
-	ucode_size = rdev->mc_fw->size / 4;
+	if (rdev->new_fw) {
+		const struct mc_firmware_header_v1_0 *hdr =
+			(const struct mc_firmware_header_v1_0 *)rdev->mc_fw->data;
 
-	switch (rdev->family) {
-	case CHIP_BONAIRE:
-		io_mc_regs = (u32 *)&bonaire_io_mc_regs;
-		regs_size = BONAIRE_IO_MC_REGS_SIZE;
-		break;
-	case CHIP_HAWAII:
-		io_mc_regs = (u32 *)&hawaii_io_mc_regs;
-		regs_size = HAWAII_IO_MC_REGS_SIZE;
-		break;
-	default:
-		return -EINVAL;
+		radeon_ucode_print_mc_hdr(&hdr->header);
+
+		regs_size = le32_to_cpu(hdr->io_debug_size_bytes) / (4 * 2);
+		new_io_mc_regs = (const __le32 *)
+			(rdev->mc_fw->data + le32_to_cpu(hdr->io_debug_array_offset_bytes));
+		ucode_size = le32_to_cpu(hdr->header.ucode_size_bytes) / 4;
+		new_fw_data = (const __le32 *)
+			(rdev->mc_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+	} else {
+		ucode_size = rdev->mc_fw->size / 4;
+
+		switch (rdev->family) {
+		case CHIP_BONAIRE:
+			io_mc_regs = (u32 *)&bonaire_io_mc_regs;
+			regs_size = BONAIRE_IO_MC_REGS_SIZE;
+			break;
+		case CHIP_HAWAII:
+			io_mc_regs = (u32 *)&hawaii_io_mc_regs;
+			regs_size = HAWAII_IO_MC_REGS_SIZE;
+			break;
+		default:
+			return -EINVAL;
+		}
+		fw_data = (const __be32 *)rdev->mc_fw->data;
 	}
 
 	running = RREG32(MC_SEQ_SUP_CNTL) & RUN_MASK;
@@ -1797,13 +1896,30 @@ int ci_mc_load_microcode(struct radeon_device *rdev)
 
 		/* load mc io regs */
 		for (i = 0; i < regs_size; i++) {
-			WREG32(MC_SEQ_IO_DEBUG_INDEX, io_mc_regs[(i << 1)]);
-			WREG32(MC_SEQ_IO_DEBUG_DATA, io_mc_regs[(i << 1) + 1]);
+			if (rdev->new_fw) {
+				WREG32(MC_SEQ_IO_DEBUG_INDEX, le32_to_cpup(new_io_mc_regs++));
+				WREG32(MC_SEQ_IO_DEBUG_DATA, le32_to_cpup(new_io_mc_regs++));
+			} else {
+				WREG32(MC_SEQ_IO_DEBUG_INDEX, io_mc_regs[(i << 1)]);
+				WREG32(MC_SEQ_IO_DEBUG_DATA, io_mc_regs[(i << 1) + 1]);
+			}
 		}
+
+		tmp = RREG32(MC_SEQ_MISC0);
+		if ((rdev->pdev->device == 0x6649) && ((tmp & 0xff00) == 0x5600)) {
+			WREG32(MC_SEQ_IO_DEBUG_INDEX, 5);
+			WREG32(MC_SEQ_IO_DEBUG_DATA, 0x00000023);
+			WREG32(MC_SEQ_IO_DEBUG_INDEX, 9);
+			WREG32(MC_SEQ_IO_DEBUG_DATA, 0x000001f0);
+		}
+
 		/* load the MC ucode */
-		fw_data = (const __be32 *)rdev->mc_fw->data;
-		for (i = 0; i < ucode_size; i++)
-			WREG32(MC_SEQ_SUP_PGM, be32_to_cpup(fw_data++));
+		for (i = 0; i < ucode_size; i++) {
+			if (rdev->new_fw)
+				WREG32(MC_SEQ_SUP_PGM, le32_to_cpup(new_fw_data++));
+			else
+				WREG32(MC_SEQ_SUP_PGM, be32_to_cpup(fw_data++));
+		}
 
 		/* put the engine back into the active state */
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000008);
@@ -1841,17 +1957,21 @@ int ci_mc_load_microcode(struct radeon_device *rdev)
 static int cik_init_microcode(struct radeon_device *rdev)
 {
 	const char *chip_name;
+	const char *new_chip_name;
 	size_t pfp_req_size, me_req_size, ce_req_size,
 		mec_req_size, rlc_req_size, mc_req_size = 0,
 		sdma_req_size, smc_req_size = 0, mc2_req_size = 0;
 	char fw_name[30];
+	int new_fw = 0;
 	int err;
+	int num_fw;
 
 	DRM_DEBUG("\n");
 
 	switch (rdev->family) {
 	case CHIP_BONAIRE:
 		chip_name = "BONAIRE";
+		new_chip_name = "bonaire";
 		pfp_req_size = CIK_PFP_UCODE_SIZE * 4;
 		me_req_size = CIK_ME_UCODE_SIZE * 4;
 		ce_req_size = CIK_CE_UCODE_SIZE * 4;
@@ -1861,9 +1981,11 @@ static int cik_init_microcode(struct radeon_device *rdev)
 		mc2_req_size = BONAIRE_MC2_UCODE_SIZE * 4;
 		sdma_req_size = CIK_SDMA_UCODE_SIZE * 4;
 		smc_req_size = ALIGN(BONAIRE_SMC_UCODE_SIZE, 4);
+		num_fw = 8;
 		break;
 	case CHIP_HAWAII:
 		chip_name = "HAWAII";
+		new_chip_name = "hawaii";
 		pfp_req_size = CIK_PFP_UCODE_SIZE * 4;
 		me_req_size = CIK_ME_UCODE_SIZE * 4;
 		ce_req_size = CIK_CE_UCODE_SIZE * 4;
@@ -1873,140 +1995,283 @@ static int cik_init_microcode(struct radeon_device *rdev)
 		mc2_req_size = HAWAII_MC2_UCODE_SIZE * 4;
 		sdma_req_size = CIK_SDMA_UCODE_SIZE * 4;
 		smc_req_size = ALIGN(HAWAII_SMC_UCODE_SIZE, 4);
+		num_fw = 8;
 		break;
 	case CHIP_KAVERI:
 		chip_name = "KAVERI";
+		new_chip_name = "kaveri";
 		pfp_req_size = CIK_PFP_UCODE_SIZE * 4;
 		me_req_size = CIK_ME_UCODE_SIZE * 4;
 		ce_req_size = CIK_CE_UCODE_SIZE * 4;
 		mec_req_size = CIK_MEC_UCODE_SIZE * 4;
 		rlc_req_size = KV_RLC_UCODE_SIZE * 4;
 		sdma_req_size = CIK_SDMA_UCODE_SIZE * 4;
+		num_fw = 7;
 		break;
 	case CHIP_KABINI:
 		chip_name = "KABINI";
+		new_chip_name = "kabini";
 		pfp_req_size = CIK_PFP_UCODE_SIZE * 4;
 		me_req_size = CIK_ME_UCODE_SIZE * 4;
 		ce_req_size = CIK_CE_UCODE_SIZE * 4;
 		mec_req_size = CIK_MEC_UCODE_SIZE * 4;
 		rlc_req_size = KB_RLC_UCODE_SIZE * 4;
 		sdma_req_size = CIK_SDMA_UCODE_SIZE * 4;
+		num_fw = 6;
 		break;
 	case CHIP_MULLINS:
 		chip_name = "MULLINS";
+		new_chip_name = "mullins";
 		pfp_req_size = CIK_PFP_UCODE_SIZE * 4;
 		me_req_size = CIK_ME_UCODE_SIZE * 4;
 		ce_req_size = CIK_CE_UCODE_SIZE * 4;
 		mec_req_size = CIK_MEC_UCODE_SIZE * 4;
 		rlc_req_size = ML_RLC_UCODE_SIZE * 4;
 		sdma_req_size = CIK_SDMA_UCODE_SIZE * 4;
+		num_fw = 6;
 		break;
 	default: BUG();
 	}
 
-	DRM_INFO("Loading %s Microcode\n", chip_name);
+	DRM_INFO("Loading %s Microcode\n", new_chip_name);
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_pfp.bin", chip_name);
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_pfp.bin", new_chip_name);
 	err = request_firmware(&rdev->pfp_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->pfp_fw->size != pfp_req_size) {
-		printk(KERN_ERR
-		       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->pfp_fw->size, fw_name);
-		err = -EINVAL;
-		goto out;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_pfp.bin", chip_name);
+		err = request_firmware(&rdev->pfp_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->pfp_fw->size != pfp_req_size) {
+			printk(KERN_ERR
+			       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->pfp_fw->size, fw_name);
+			err = -EINVAL;
+			goto out;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->pfp_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_me.bin", chip_name);
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_me.bin", new_chip_name);
 	err = request_firmware(&rdev->me_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->me_fw->size != me_req_size) {
-		printk(KERN_ERR
-		       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->me_fw->size, fw_name);
-		err = -EINVAL;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_me.bin", chip_name);
+		err = request_firmware(&rdev->me_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->me_fw->size != me_req_size) {
+			printk(KERN_ERR
+			       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->me_fw->size, fw_name);
+			err = -EINVAL;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->me_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_ce.bin", chip_name);
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_ce.bin", new_chip_name);
 	err = request_firmware(&rdev->ce_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->ce_fw->size != ce_req_size) {
-		printk(KERN_ERR
-		       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->ce_fw->size, fw_name);
-		err = -EINVAL;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_ce.bin", chip_name);
+		err = request_firmware(&rdev->ce_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->ce_fw->size != ce_req_size) {
+			printk(KERN_ERR
+			       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->ce_fw->size, fw_name);
+			err = -EINVAL;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->ce_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_mec.bin", chip_name);
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_mec.bin", new_chip_name);
 	err = request_firmware(&rdev->mec_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->mec_fw->size != mec_req_size) {
-		printk(KERN_ERR
-		       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->mec_fw->size, fw_name);
-		err = -EINVAL;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_mec.bin", chip_name);
+		err = request_firmware(&rdev->mec_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->mec_fw->size != mec_req_size) {
+			printk(KERN_ERR
+			       "cik_cp: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->mec_fw->size, fw_name);
+			err = -EINVAL;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->mec_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_rlc.bin", chip_name);
+	if (rdev->family == CHIP_KAVERI) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_mec2.bin", new_chip_name);
+		err = request_firmware(&rdev->mec2_fw, fw_name, rdev->dev);
+		if (err) {
+			goto out;
+		} else {
+			err = radeon_ucode_validate(rdev->mec2_fw);
+			if (err) {
+				goto out;
+			} else {
+				new_fw++;
+			}
+		}
+	}
+
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_rlc.bin", new_chip_name);
 	err = request_firmware(&rdev->rlc_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->rlc_fw->size != rlc_req_size) {
-		printk(KERN_ERR
-		       "cik_rlc: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->rlc_fw->size, fw_name);
-		err = -EINVAL;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_rlc.bin", chip_name);
+		err = request_firmware(&rdev->rlc_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->rlc_fw->size != rlc_req_size) {
+			printk(KERN_ERR
+			       "cik_rlc: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->rlc_fw->size, fw_name);
+			err = -EINVAL;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->rlc_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
-	snprintf(fw_name, sizeof(fw_name), "radeon/%s_sdma.bin", chip_name);
+	snprintf(fw_name, sizeof(fw_name), "radeon/%s_sdma.bin", new_chip_name);
 	err = request_firmware(&rdev->sdma_fw, fw_name, rdev->dev);
-	if (err)
-		goto out;
-	if (rdev->sdma_fw->size != sdma_req_size) {
-		printk(KERN_ERR
-		       "cik_sdma: Bogus length %zu in firmware \"%s\"\n",
-		       rdev->sdma_fw->size, fw_name);
-		err = -EINVAL;
+	if (err) {
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_sdma.bin", chip_name);
+		err = request_firmware(&rdev->sdma_fw, fw_name, rdev->dev);
+		if (err)
+			goto out;
+		if (rdev->sdma_fw->size != sdma_req_size) {
+			printk(KERN_ERR
+			       "cik_sdma: Bogus length %zu in firmware \"%s\"\n",
+			       rdev->sdma_fw->size, fw_name);
+			err = -EINVAL;
+		}
+	} else {
+		err = radeon_ucode_validate(rdev->sdma_fw);
+		if (err) {
+			printk(KERN_ERR
+			       "cik_fw: validation failed for firmware \"%s\"\n",
+			       fw_name);
+			goto out;
+		} else {
+			new_fw++;
+		}
 	}
 
 	/* No SMC, MC ucode on APUs */
 	if (!(rdev->flags & RADEON_IS_IGP)) {
-		snprintf(fw_name, sizeof(fw_name), "radeon/%s_mc2.bin", chip_name);
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_mc.bin", new_chip_name);
 		err = request_firmware(&rdev->mc_fw, fw_name, rdev->dev);
 		if (err) {
-			snprintf(fw_name, sizeof(fw_name), "radeon/%s_mc.bin", chip_name);
+			snprintf(fw_name, sizeof(fw_name), "radeon/%s_mc2.bin", chip_name);
 			err = request_firmware(&rdev->mc_fw, fw_name, rdev->dev);
-			if (err)
+			if (err) {
+				snprintf(fw_name, sizeof(fw_name), "radeon/%s_mc.bin", chip_name);
+				err = request_firmware(&rdev->mc_fw, fw_name, rdev->dev);
+				if (err)
+					goto out;
+			}
+			if ((rdev->mc_fw->size != mc_req_size) &&
+			    (rdev->mc_fw->size != mc2_req_size)){
+				printk(KERN_ERR
+				       "cik_mc: Bogus length %zu in firmware \"%s\"\n",
+				       rdev->mc_fw->size, fw_name);
+				err = -EINVAL;
+			}
+			DRM_INFO("%s: %zu bytes\n", fw_name, rdev->mc_fw->size);
+		} else {
+			err = radeon_ucode_validate(rdev->mc_fw);
+			if (err) {
+				printk(KERN_ERR
+				       "cik_fw: validation failed for firmware \"%s\"\n",
+				       fw_name);
 				goto out;
+			} else {
+				new_fw++;
+			}
 		}
-		if ((rdev->mc_fw->size != mc_req_size) &&
-		    (rdev->mc_fw->size != mc2_req_size)){
-			printk(KERN_ERR
-			       "cik_mc: Bogus length %zu in firmware \"%s\"\n",
-			       rdev->mc_fw->size, fw_name);
-			err = -EINVAL;
-		}
-		DRM_INFO("%s: %zu bytes\n", fw_name, rdev->mc_fw->size);
 
-		snprintf(fw_name, sizeof(fw_name), "radeon/%s_smc.bin", chip_name);
+		snprintf(fw_name, sizeof(fw_name), "radeon/%s_smc.bin", new_chip_name);
 		err = request_firmware(&rdev->smc_fw, fw_name, rdev->dev);
 		if (err) {
-			printk(KERN_ERR
-			       "smc: error loading firmware \"%s\"\n",
-			       fw_name);
-			release_firmware(rdev->smc_fw);
-			rdev->smc_fw = NULL;
-			err = 0;
-		} else if (rdev->smc_fw->size != smc_req_size) {
-			printk(KERN_ERR
-			       "cik_smc: Bogus length %zu in firmware \"%s\"\n",
-			       rdev->smc_fw->size, fw_name);
-			err = -EINVAL;
+			snprintf(fw_name, sizeof(fw_name), "radeon/%s_smc.bin", chip_name);
+			err = request_firmware(&rdev->smc_fw, fw_name, rdev->dev);
+			if (err) {
+				printk(KERN_ERR
+				       "smc: error loading firmware \"%s\"\n",
+				       fw_name);
+				release_firmware(rdev->smc_fw);
+				rdev->smc_fw = NULL;
+				err = 0;
+			} else if (rdev->smc_fw->size != smc_req_size) {
+				printk(KERN_ERR
+				       "cik_smc: Bogus length %zu in firmware \"%s\"\n",
+				       rdev->smc_fw->size, fw_name);
+				err = -EINVAL;
+			}
+		} else {
+			err = radeon_ucode_validate(rdev->smc_fw);
+			if (err) {
+				printk(KERN_ERR
+				       "cik_fw: validation failed for firmware \"%s\"\n",
+				       fw_name);
+				goto out;
+			} else {
+				new_fw++;
+			}
 		}
+	}
+
+	if (new_fw == 0) {
+		rdev->new_fw = false;
+	} else if (new_fw < num_fw) {
+		printk(KERN_ERR "ci_fw: mixing new and old firmware!\n");
+		err = -EINVAL;
+	} else {
+		rdev->new_fw = true;
 	}
 
 out:
@@ -2021,8 +2286,14 @@ out:
 		rdev->me_fw = NULL;
 		release_firmware(rdev->ce_fw);
 		rdev->ce_fw = NULL;
+		release_firmware(rdev->mec_fw);
+		rdev->mec_fw = NULL;
+		release_firmware(rdev->mec2_fw);
+		rdev->mec2_fw = NULL;
 		release_firmware(rdev->rlc_fw);
 		rdev->rlc_fw = NULL;
+		release_firmware(rdev->sdma_fw);
+		rdev->sdma_fw = NULL;
 		release_firmware(rdev->mc_fw);
 		rdev->mc_fw = NULL;
 		release_firmware(rdev->smc_fw);
@@ -3195,6 +3466,7 @@ static void cik_setup_rb(struct radeon_device *rdev,
 	u32 disabled_rbs = 0;
 	u32 enabled_rbs = 0;
 
+	mutex_lock(&rdev->grbm_idx_mutex);
 	for (i = 0; i < se_num; i++) {
 		for (j = 0; j < sh_per_se; j++) {
 			cik_select_se_sh(rdev, i, j);
@@ -3206,6 +3478,7 @@ static void cik_setup_rb(struct radeon_device *rdev,
 		}
 	}
 	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 
 	mask = 1;
 	for (i = 0; i < max_rb_num_per_se * se_num; i++) {
@@ -3216,6 +3489,7 @@ static void cik_setup_rb(struct radeon_device *rdev,
 
 	rdev->config.cik.backend_enable_mask = enabled_rbs;
 
+	mutex_lock(&rdev->grbm_idx_mutex);
 	for (i = 0; i < se_num; i++) {
 		cik_select_se_sh(rdev, i, 0xffffffff);
 		data = 0;
@@ -3243,6 +3517,7 @@ static void cik_setup_rb(struct radeon_device *rdev,
 		WREG32(PA_SC_RASTER_CONFIG, data);
 	}
 	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 }
 
 /**
@@ -3371,6 +3646,8 @@ static void cik_gpu_init(struct radeon_device *rdev)
 	}
 
 	WREG32(GRBM_CNTL, GRBM_READ_TIMEOUT(0xff));
+	WREG32(SRBM_INT_CNTL, 0x1);
+	WREG32(SRBM_INT_ACK, 0x1);
 
 	WREG32(BIF_FB_EN, FB_READ_EN | FB_WRITE_EN);
 
@@ -3460,6 +3737,12 @@ static void cik_gpu_init(struct radeon_device *rdev)
 	/* set HW defaults for 3D engine */
 	WREG32(CP_MEQ_THRESHOLDS, MEQ1_START(0x30) | MEQ2_START(0x60));
 
+	mutex_lock(&rdev->grbm_idx_mutex);
+	/*
+	 * making sure that the following register writes will be broadcasted
+	 * to all the shaders
+	 */
+	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
 	WREG32(SX_DEBUG_1, 0x20);
 
 	WREG32(TA_CNTL_AUX, 0x00010000);
@@ -3515,6 +3798,7 @@ static void cik_gpu_init(struct radeon_device *rdev)
 
 	WREG32(PA_CL_ENHANCE, CLIP_VTX_REORDER_ENA | NUM_CLIP_SEQ(3));
 	WREG32(PA_SC_ENHANCE, ENABLE_PA_SC_OUT_OF_ORDER);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 
 	udelay(50);
 }
@@ -3577,7 +3861,7 @@ int cik_ring_test(struct radeon_device *rdev, struct radeon_ring *ring)
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_UCONFIG_REG, 1));
 	radeon_ring_write(ring, ((scratch - PACKET3_SET_UCONFIG_REG_START) >> 2));
 	radeon_ring_write(ring, 0xDEADBEEF);
-	radeon_ring_unlock_commit(rdev, ring);
+	radeon_ring_unlock_commit(rdev, ring, false);
 
 	for (i = 0; i < rdev->usec_timeout; i++) {
 		tmp = RREG32(scratch);
@@ -3656,7 +3940,21 @@ void cik_fence_gfx_ring_emit(struct radeon_device *rdev,
 	struct radeon_ring *ring = &rdev->ring[fence->ring];
 	u64 addr = rdev->fence_drv[fence->ring].gpu_addr;
 
-	/* EVENT_WRITE_EOP - flush caches, send int */
+	/* Workaround for cache flush problems. First send a dummy EOP
+	 * event down the pipe with seq one below.
+	 */
+	radeon_ring_write(ring, PACKET3(PACKET3_EVENT_WRITE_EOP, 4));
+	radeon_ring_write(ring, (EOP_TCL1_ACTION_EN |
+				 EOP_TC_ACTION_EN |
+				 EVENT_TYPE(CACHE_FLUSH_AND_INV_TS_EVENT) |
+				 EVENT_INDEX(5)));
+	radeon_ring_write(ring, addr & 0xfffffffc);
+	radeon_ring_write(ring, (upper_32_bits(addr) & 0xffff) |
+				DATA_SEL(1) | INT_SEL(0));
+	radeon_ring_write(ring, fence->seq - 1);
+	radeon_ring_write(ring, 0);
+
+	/* Then send the real EOP event down the pipe. */
 	radeon_ring_write(ring, PACKET3(PACKET3_EVENT_WRITE_EOP, 4));
 	radeon_ring_write(ring, (EOP_TCL1_ACTION_EN |
 				 EOP_TC_ACTION_EN |
@@ -3666,8 +3964,6 @@ void cik_fence_gfx_ring_emit(struct radeon_device *rdev,
 	radeon_ring_write(ring, (upper_32_bits(addr) & 0xffff) | DATA_SEL(1) | INT_SEL(2));
 	radeon_ring_write(ring, fence->seq);
 	radeon_ring_write(ring, 0);
-	/* HDP flush */
-	cik_hdp_flush_cp_ring_emit(rdev, fence->ring);
 }
 
 /**
@@ -3696,10 +3992,19 @@ void cik_fence_compute_ring_emit(struct radeon_device *rdev,
 	radeon_ring_write(ring, upper_32_bits(addr));
 	radeon_ring_write(ring, fence->seq);
 	radeon_ring_write(ring, 0);
-	/* HDP flush */
-	cik_hdp_flush_cp_ring_emit(rdev, fence->ring);
 }
 
+/**
+ * cik_semaphore_ring_emit - emit a semaphore on the CP ring
+ *
+ * @rdev: radeon_device pointer
+ * @ring: radeon ring buffer object
+ * @semaphore: radeon semaphore object
+ * @emit_wait: Is this a sempahore wait?
+ *
+ * Emits a semaphore signal/wait packet to the CP ring and prevents the PFP
+ * from running ahead of semaphore waits.
+ */
 bool cik_semaphore_ring_emit(struct radeon_device *rdev,
 			     struct radeon_ring *ring,
 			     struct radeon_semaphore *semaphore,
@@ -3712,6 +4017,12 @@ bool cik_semaphore_ring_emit(struct radeon_device *rdev,
 	radeon_ring_write(ring, lower_32_bits(addr));
 	radeon_ring_write(ring, (upper_32_bits(addr) & 0xffff) | sel);
 
+	if (emit_wait && ring->idx == RADEON_RING_TYPE_GFX_INDEX) {
+		/* Prevent the PFP from running ahead of the semaphore wait */
+		radeon_ring_write(ring, PACKET3(PACKET3_PFP_SYNC_ME, 0));
+		radeon_ring_write(ring, 0x0);
+	}
+
 	return true;
 }
 
@@ -3722,41 +4033,38 @@ bool cik_semaphore_ring_emit(struct radeon_device *rdev,
  * @src_offset: src GPU address
  * @dst_offset: dst GPU address
  * @num_gpu_pages: number of GPU pages to xfer
- * @fence: radeon fence object
+ * @resv: reservation object to sync to
  *
  * Copy GPU paging using the CP DMA engine (CIK+).
  * Used by the radeon ttm implementation to move pages if
  * registered as the asic copy callback.
  */
-int cik_copy_cpdma(struct radeon_device *rdev,
-		   uint64_t src_offset, uint64_t dst_offset,
-		   unsigned num_gpu_pages,
-		   struct radeon_fence **fence)
+struct radeon_fence *cik_copy_cpdma(struct radeon_device *rdev,
+				    uint64_t src_offset, uint64_t dst_offset,
+				    unsigned num_gpu_pages,
+				    struct reservation_object *resv)
 {
-	struct radeon_semaphore *sem = NULL;
+	struct radeon_fence *fence;
+	struct radeon_sync sync;
 	int ring_index = rdev->asic->copy.blit_ring_index;
 	struct radeon_ring *ring = &rdev->ring[ring_index];
 	u32 size_in_bytes, cur_size_in_bytes, control;
 	int i, num_loops;
 	int r = 0;
 
-	r = radeon_semaphore_create(rdev, &sem);
-	if (r) {
-		DRM_ERROR("radeon: moving bo (%d).\n", r);
-		return r;
-	}
+	radeon_sync_create(&sync);
 
 	size_in_bytes = (num_gpu_pages << RADEON_GPU_PAGE_SHIFT);
 	num_loops = DIV_ROUND_UP(size_in_bytes, 0x1fffff);
 	r = radeon_ring_lock(rdev, ring, num_loops * 7 + 18);
 	if (r) {
 		DRM_ERROR("radeon: moving bo (%d).\n", r);
-		radeon_semaphore_free(rdev, &sem, NULL);
-		return r;
+		radeon_sync_free(rdev, &sync, NULL);
+		return ERR_PTR(r);
 	}
 
-	radeon_semaphore_sync_to(sem, *fence);
-	radeon_semaphore_sync_rings(rdev, sem, ring->idx);
+	radeon_sync_resv(rdev, &sync, resv, false);
+	radeon_sync_rings(rdev, &sync, ring->idx);
 
 	for (i = 0; i < num_loops; i++) {
 		cur_size_in_bytes = size_in_bytes;
@@ -3777,17 +4085,17 @@ int cik_copy_cpdma(struct radeon_device *rdev,
 		dst_offset += cur_size_in_bytes;
 	}
 
-	r = radeon_fence_emit(rdev, fence, ring->idx);
+	r = radeon_fence_emit(rdev, &fence, ring->idx);
 	if (r) {
 		radeon_ring_unlock_undo(rdev, ring);
-		radeon_semaphore_free(rdev, &sem, NULL);
-		return r;
+		radeon_sync_free(rdev, &sync, NULL);
+		return ERR_PTR(r);
 	}
 
-	radeon_ring_unlock_commit(rdev, ring);
-	radeon_semaphore_free(rdev, &sem, *fence);
+	radeon_ring_unlock_commit(rdev, ring, false);
+	radeon_sync_free(rdev, &sync, fence);
 
-	return r;
+	return fence;
 }
 
 /*
@@ -3808,6 +4116,7 @@ int cik_copy_cpdma(struct radeon_device *rdev,
 void cik_ring_ib_execute(struct radeon_device *rdev, struct radeon_ib *ib)
 {
 	struct radeon_ring *ring = &rdev->ring[ib->ring];
+	unsigned vm_id = ib->vm ? ib->vm->ids[ib->ring].id : 0;
 	u32 header, control = INDIRECT_BUFFER_VALID;
 
 	if (ib->is_const_ib) {
@@ -3836,8 +4145,7 @@ void cik_ring_ib_execute(struct radeon_device *rdev, struct radeon_ib *ib)
 		header = PACKET3(PACKET3_INDIRECT_BUFFER, 2);
 	}
 
-	control |= ib->length_dw |
-		(ib->vm ? (ib->vm->id << 24) : 0);
+	control |= ib->length_dw | (vm_id << 24);
 
 	radeon_ring_write(ring, header);
 	radeon_ring_write(ring,
@@ -3883,7 +4191,7 @@ int cik_ib_test(struct radeon_device *rdev, struct radeon_ring *ring)
 	ib.ptr[1] = ((scratch - PACKET3_SET_UCONFIG_REG_START) >> 2);
 	ib.ptr[2] = 0xDEADBEEF;
 	ib.length_dw = 3;
-	r = radeon_ib_schedule(rdev, &ib, NULL);
+	r = radeon_ib_schedule(rdev, &ib, NULL, false);
 	if (r) {
 		radeon_scratch_free(rdev, scratch);
 		radeon_ib_free(rdev, &ib);
@@ -3969,7 +4277,6 @@ static void cik_cp_gfx_enable(struct radeon_device *rdev, bool enable)
  */
 static int cik_cp_gfx_load_microcode(struct radeon_device *rdev)
 {
-	const __be32 *fw_data;
 	int i;
 
 	if (!rdev->me_fw || !rdev->pfp_fw || !rdev->ce_fw)
@@ -3977,31 +4284,72 @@ static int cik_cp_gfx_load_microcode(struct radeon_device *rdev)
 
 	cik_cp_gfx_enable(rdev, false);
 
-	/* PFP */
-	fw_data = (const __be32 *)rdev->pfp_fw->data;
-	WREG32(CP_PFP_UCODE_ADDR, 0);
-	for (i = 0; i < CIK_PFP_UCODE_SIZE; i++)
-		WREG32(CP_PFP_UCODE_DATA, be32_to_cpup(fw_data++));
-	WREG32(CP_PFP_UCODE_ADDR, 0);
+	if (rdev->new_fw) {
+		const struct gfx_firmware_header_v1_0 *pfp_hdr =
+			(const struct gfx_firmware_header_v1_0 *)rdev->pfp_fw->data;
+		const struct gfx_firmware_header_v1_0 *ce_hdr =
+			(const struct gfx_firmware_header_v1_0 *)rdev->ce_fw->data;
+		const struct gfx_firmware_header_v1_0 *me_hdr =
+			(const struct gfx_firmware_header_v1_0 *)rdev->me_fw->data;
+		const __le32 *fw_data;
+		u32 fw_size;
 
-	/* CE */
-	fw_data = (const __be32 *)rdev->ce_fw->data;
-	WREG32(CP_CE_UCODE_ADDR, 0);
-	for (i = 0; i < CIK_CE_UCODE_SIZE; i++)
-		WREG32(CP_CE_UCODE_DATA, be32_to_cpup(fw_data++));
-	WREG32(CP_CE_UCODE_ADDR, 0);
+		radeon_ucode_print_gfx_hdr(&pfp_hdr->header);
+		radeon_ucode_print_gfx_hdr(&ce_hdr->header);
+		radeon_ucode_print_gfx_hdr(&me_hdr->header);
 
-	/* ME */
-	fw_data = (const __be32 *)rdev->me_fw->data;
-	WREG32(CP_ME_RAM_WADDR, 0);
-	for (i = 0; i < CIK_ME_UCODE_SIZE; i++)
-		WREG32(CP_ME_RAM_DATA, be32_to_cpup(fw_data++));
-	WREG32(CP_ME_RAM_WADDR, 0);
+		/* PFP */
+		fw_data = (const __le32 *)
+			(rdev->pfp_fw->data + le32_to_cpu(pfp_hdr->header.ucode_array_offset_bytes));
+		fw_size = le32_to_cpu(pfp_hdr->header.ucode_size_bytes) / 4;
+		WREG32(CP_PFP_UCODE_ADDR, 0);
+		for (i = 0; i < fw_size; i++)
+			WREG32(CP_PFP_UCODE_DATA, le32_to_cpup(fw_data++));
+		WREG32(CP_PFP_UCODE_ADDR, le32_to_cpu(pfp_hdr->header.ucode_version));
 
-	WREG32(CP_PFP_UCODE_ADDR, 0);
-	WREG32(CP_CE_UCODE_ADDR, 0);
-	WREG32(CP_ME_RAM_WADDR, 0);
-	WREG32(CP_ME_RAM_RADDR, 0);
+		/* CE */
+		fw_data = (const __le32 *)
+			(rdev->ce_fw->data + le32_to_cpu(ce_hdr->header.ucode_array_offset_bytes));
+		fw_size = le32_to_cpu(ce_hdr->header.ucode_size_bytes) / 4;
+		WREG32(CP_CE_UCODE_ADDR, 0);
+		for (i = 0; i < fw_size; i++)
+			WREG32(CP_CE_UCODE_DATA, le32_to_cpup(fw_data++));
+		WREG32(CP_CE_UCODE_ADDR, le32_to_cpu(ce_hdr->header.ucode_version));
+
+		/* ME */
+		fw_data = (const __be32 *)
+			(rdev->me_fw->data + le32_to_cpu(me_hdr->header.ucode_array_offset_bytes));
+		fw_size = le32_to_cpu(me_hdr->header.ucode_size_bytes) / 4;
+		WREG32(CP_ME_RAM_WADDR, 0);
+		for (i = 0; i < fw_size; i++)
+			WREG32(CP_ME_RAM_DATA, le32_to_cpup(fw_data++));
+		WREG32(CP_ME_RAM_WADDR, le32_to_cpu(me_hdr->header.ucode_version));
+		WREG32(CP_ME_RAM_RADDR, le32_to_cpu(me_hdr->header.ucode_version));
+	} else {
+		const __be32 *fw_data;
+
+		/* PFP */
+		fw_data = (const __be32 *)rdev->pfp_fw->data;
+		WREG32(CP_PFP_UCODE_ADDR, 0);
+		for (i = 0; i < CIK_PFP_UCODE_SIZE; i++)
+			WREG32(CP_PFP_UCODE_DATA, be32_to_cpup(fw_data++));
+		WREG32(CP_PFP_UCODE_ADDR, 0);
+
+		/* CE */
+		fw_data = (const __be32 *)rdev->ce_fw->data;
+		WREG32(CP_CE_UCODE_ADDR, 0);
+		for (i = 0; i < CIK_CE_UCODE_SIZE; i++)
+			WREG32(CP_CE_UCODE_DATA, be32_to_cpup(fw_data++));
+		WREG32(CP_CE_UCODE_ADDR, 0);
+
+		/* ME */
+		fw_data = (const __be32 *)rdev->me_fw->data;
+		WREG32(CP_ME_RAM_WADDR, 0);
+		for (i = 0; i < CIK_ME_UCODE_SIZE; i++)
+			WREG32(CP_ME_RAM_DATA, be32_to_cpup(fw_data++));
+		WREG32(CP_ME_RAM_WADDR, 0);
+	}
+
 	return 0;
 }
 
@@ -4035,8 +4383,8 @@ static int cik_cp_gfx_start(struct radeon_device *rdev)
 	/* init the CE partitions.  CE only used for gfx on CIK */
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_BASE, 2));
 	radeon_ring_write(ring, PACKET3_BASE_INDEX(CE_PARTITION_BASE));
-	radeon_ring_write(ring, 0xc000);
-	radeon_ring_write(ring, 0xc000);
+	radeon_ring_write(ring, 0x8000);
+	radeon_ring_write(ring, 0x8000);
 
 	/* setup clear context state */
 	radeon_ring_write(ring, PACKET3(PACKET3_PREAMBLE_CNTL, 0));
@@ -4061,7 +4409,7 @@ static int cik_cp_gfx_start(struct radeon_device *rdev)
 	radeon_ring_write(ring, 0x0000000e); /* VGT_VERTEX_REUSE_BLOCK_CNTL */
 	radeon_ring_write(ring, 0x00000010); /* VGT_OUT_DEALLOC_CNTL */
 
-	radeon_ring_unlock_commit(rdev, ring);
+	radeon_ring_unlock_commit(rdev, ring, false);
 
 	return 0;
 }
@@ -4261,7 +4609,6 @@ static void cik_cp_compute_enable(struct radeon_device *rdev, bool enable)
  */
 static int cik_cp_compute_load_microcode(struct radeon_device *rdev)
 {
-	const __be32 *fw_data;
 	int i;
 
 	if (!rdev->mec_fw)
@@ -4269,20 +4616,55 @@ static int cik_cp_compute_load_microcode(struct radeon_device *rdev)
 
 	cik_cp_compute_enable(rdev, false);
 
-	/* MEC1 */
-	fw_data = (const __be32 *)rdev->mec_fw->data;
-	WREG32(CP_MEC_ME1_UCODE_ADDR, 0);
-	for (i = 0; i < CIK_MEC_UCODE_SIZE; i++)
-		WREG32(CP_MEC_ME1_UCODE_DATA, be32_to_cpup(fw_data++));
-	WREG32(CP_MEC_ME1_UCODE_ADDR, 0);
+	if (rdev->new_fw) {
+		const struct gfx_firmware_header_v1_0 *mec_hdr =
+			(const struct gfx_firmware_header_v1_0 *)rdev->mec_fw->data;
+		const __le32 *fw_data;
+		u32 fw_size;
 
-	if (rdev->family == CHIP_KAVERI) {
+		radeon_ucode_print_gfx_hdr(&mec_hdr->header);
+
+		/* MEC1 */
+		fw_data = (const __le32 *)
+			(rdev->mec_fw->data + le32_to_cpu(mec_hdr->header.ucode_array_offset_bytes));
+		fw_size = le32_to_cpu(mec_hdr->header.ucode_size_bytes) / 4;
+		WREG32(CP_MEC_ME1_UCODE_ADDR, 0);
+		for (i = 0; i < fw_size; i++)
+			WREG32(CP_MEC_ME1_UCODE_DATA, le32_to_cpup(fw_data++));
+		WREG32(CP_MEC_ME1_UCODE_ADDR, le32_to_cpu(mec_hdr->header.ucode_version));
+
 		/* MEC2 */
+		if (rdev->family == CHIP_KAVERI) {
+			const struct gfx_firmware_header_v1_0 *mec2_hdr =
+				(const struct gfx_firmware_header_v1_0 *)rdev->mec2_fw->data;
+
+			fw_data = (const __le32 *)
+				(rdev->mec2_fw->data +
+				 le32_to_cpu(mec2_hdr->header.ucode_array_offset_bytes));
+			fw_size = le32_to_cpu(mec2_hdr->header.ucode_size_bytes) / 4;
+			WREG32(CP_MEC_ME2_UCODE_ADDR, 0);
+			for (i = 0; i < fw_size; i++)
+				WREG32(CP_MEC_ME2_UCODE_DATA, le32_to_cpup(fw_data++));
+			WREG32(CP_MEC_ME2_UCODE_ADDR, le32_to_cpu(mec2_hdr->header.ucode_version));
+		}
+	} else {
+		const __be32 *fw_data;
+
+		/* MEC1 */
 		fw_data = (const __be32 *)rdev->mec_fw->data;
-		WREG32(CP_MEC_ME2_UCODE_ADDR, 0);
+		WREG32(CP_MEC_ME1_UCODE_ADDR, 0);
 		for (i = 0; i < CIK_MEC_UCODE_SIZE; i++)
-			WREG32(CP_MEC_ME2_UCODE_DATA, be32_to_cpup(fw_data++));
-		WREG32(CP_MEC_ME2_UCODE_ADDR, 0);
+			WREG32(CP_MEC_ME1_UCODE_DATA, be32_to_cpup(fw_data++));
+		WREG32(CP_MEC_ME1_UCODE_ADDR, 0);
+
+		if (rdev->family == CHIP_KAVERI) {
+			/* MEC2 */
+			fw_data = (const __be32 *)rdev->mec_fw->data;
+			WREG32(CP_MEC_ME2_UCODE_ADDR, 0);
+			for (i = 0; i < CIK_MEC_UCODE_SIZE; i++)
+				WREG32(CP_MEC_ME2_UCODE_DATA, be32_to_cpup(fw_data++));
+			WREG32(CP_MEC_ME2_UCODE_ADDR, 0);
+		}
 	}
 
 	return 0;
@@ -4363,19 +4745,18 @@ static int cik_mec_init(struct radeon_device *rdev)
 	/*
 	 * KV:    2 MEC, 4 Pipes/MEC, 8 Queues/Pipe - 64 Queues total
 	 * CI/KB: 1 MEC, 4 Pipes/MEC, 8 Queues/Pipe - 32 Queues total
+	 * Nonetheless, we assign only 1 pipe because all other pipes will
+	 * be handled by KFD
 	 */
-	if (rdev->family == CHIP_KAVERI)
-		rdev->mec.num_mec = 2;
-	else
-		rdev->mec.num_mec = 1;
-	rdev->mec.num_pipe = 4;
+	rdev->mec.num_mec = 1;
+	rdev->mec.num_pipe = 1;
 	rdev->mec.num_queue = rdev->mec.num_mec * rdev->mec.num_pipe * 8;
 
 	if (rdev->mec.hpd_eop_obj == NULL) {
 		r = radeon_bo_create(rdev,
 				     rdev->mec.num_mec *rdev->mec.num_pipe * MEC_HPD_SIZE * 2,
 				     PAGE_SIZE, true,
-				     RADEON_GEM_DOMAIN_GTT, NULL,
+				     RADEON_GEM_DOMAIN_GTT, 0, NULL, NULL,
 				     &rdev->mec.hpd_eop_obj);
 		if (r) {
 			dev_warn(rdev->dev, "(%d) create HDP EOP bo failed\n", r);
@@ -4510,28 +4891,24 @@ static int cik_cp_compute_resume(struct radeon_device *rdev)
 
 	/* init the pipes */
 	mutex_lock(&rdev->srbm_mutex);
-	for (i = 0; i < (rdev->mec.num_pipe * rdev->mec.num_mec); i++) {
-		int me = (i < 4) ? 1 : 2;
-		int pipe = (i < 4) ? i : (i - 4);
 
-		eop_gpu_addr = rdev->mec.hpd_eop_gpu_addr + (i * MEC_HPD_SIZE * 2);
+	eop_gpu_addr = rdev->mec.hpd_eop_gpu_addr;
 
-		cik_srbm_select(rdev, me, pipe, 0, 0);
-
-		/* write the EOP addr */
-		WREG32(CP_HPD_EOP_BASE_ADDR, eop_gpu_addr >> 8);
-		WREG32(CP_HPD_EOP_BASE_ADDR_HI, upper_32_bits(eop_gpu_addr) >> 8);
-
-		/* set the VMID assigned */
-		WREG32(CP_HPD_EOP_VMID, 0);
-
-		/* set the EOP size, register value is 2^(EOP_SIZE+1) dwords */
-		tmp = RREG32(CP_HPD_EOP_CONTROL);
-		tmp &= ~EOP_SIZE_MASK;
-		tmp |= order_base_2(MEC_HPD_SIZE / 8);
-		WREG32(CP_HPD_EOP_CONTROL, tmp);
-	}
 	cik_srbm_select(rdev, 0, 0, 0, 0);
+
+	/* write the EOP addr */
+	WREG32(CP_HPD_EOP_BASE_ADDR, eop_gpu_addr >> 8);
+	WREG32(CP_HPD_EOP_BASE_ADDR_HI, upper_32_bits(eop_gpu_addr) >> 8);
+
+	/* set the VMID assigned */
+	WREG32(CP_HPD_EOP_VMID, 0);
+
+	/* set the EOP size, register value is 2^(EOP_SIZE+1) dwords */
+	tmp = RREG32(CP_HPD_EOP_CONTROL);
+	tmp &= ~EOP_SIZE_MASK;
+	tmp |= order_base_2(MEC_HPD_SIZE / 8);
+	WREG32(CP_HPD_EOP_CONTROL, tmp);
+
 	mutex_unlock(&rdev->srbm_mutex);
 
 	/* init the queues.  Just two for now. */
@@ -4545,8 +4922,8 @@ static int cik_cp_compute_resume(struct radeon_device *rdev)
 			r = radeon_bo_create(rdev,
 					     sizeof(struct bonaire_mqd),
 					     PAGE_SIZE, true,
-					     RADEON_GEM_DOMAIN_GTT, NULL,
-					     &rdev->ring[idx].mqd_obj);
+					     RADEON_GEM_DOMAIN_GTT, 0, NULL,
+					     NULL, &rdev->ring[idx].mqd_obj);
 			if (r) {
 				dev_warn(rdev->dev, "(%d) create MQD bo failed\n", r);
 				return r;
@@ -5380,6 +5757,28 @@ void cik_pcie_gart_tlb_flush(struct radeon_device *rdev)
 	WREG32(VM_INVALIDATE_REQUEST, 0x1);
 }
 
+static void cik_pcie_init_compute_vmid(struct radeon_device *rdev)
+{
+	int i;
+	uint32_t sh_mem_bases, sh_mem_config;
+
+	sh_mem_bases = 0x6000 | 0x6000 << 16;
+	sh_mem_config = ALIGNMENT_MODE(SH_MEM_ALIGNMENT_MODE_UNALIGNED);
+	sh_mem_config |= DEFAULT_MTYPE(MTYPE_NONCACHED);
+
+	mutex_lock(&rdev->srbm_mutex);
+	for (i = 8; i < 16; i++) {
+		cik_srbm_select(rdev, 0, 0, 0, i);
+		/* CP and shaders */
+		WREG32(SH_MEM_CONFIG, sh_mem_config);
+		WREG32(SH_MEM_APE1_BASE, 1);
+		WREG32(SH_MEM_APE1_LIMIT, 0);
+		WREG32(SH_MEM_BASES, sh_mem_bases);
+	}
+	cik_srbm_select(rdev, 0, 0, 0, 0);
+	mutex_unlock(&rdev->srbm_mutex);
+}
+
 /**
  * cik_pcie_gart_enable - gart enable
  *
@@ -5402,7 +5801,6 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
 	r = radeon_gart_table_vram_pin(rdev);
 	if (r)
 		return r;
-	radeon_gart_restore(rdev);
 	/* Setup TLB control */
 	WREG32(MC_VM_MX_L1_TLB_CNTL,
 	       (0xA << 7) |
@@ -5436,20 +5834,17 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
 	WREG32(0x15D8, 0);
 	WREG32(0x15DC, 0);
 
-	/* empty context1-15 */
-	/* FIXME start with 4G, once using 2 level pt switch to full
-	 * vm size space
-	 */
+	/* restore context1-15 */
 	/* set vm size, must be a multiple of 4 */
 	WREG32(VM_CONTEXT1_PAGE_TABLE_START_ADDR, 0);
-	WREG32(VM_CONTEXT1_PAGE_TABLE_END_ADDR, rdev->vm_manager.max_pfn);
+	WREG32(VM_CONTEXT1_PAGE_TABLE_END_ADDR, rdev->vm_manager.max_pfn - 1);
 	for (i = 1; i < 16; i++) {
 		if (i < 8)
 			WREG32(VM_CONTEXT0_PAGE_TABLE_BASE_ADDR + (i << 2),
-			       rdev->gart.table_addr >> 12);
+			       rdev->vm_manager.saved_table_addr[i]);
 		else
 			WREG32(VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((i - 8) << 2),
-			       rdev->gart.table_addr >> 12);
+			       rdev->vm_manager.saved_table_addr[i]);
 	}
 
 	/* enable context1-15 */
@@ -5497,6 +5892,8 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
 	cik_srbm_select(rdev, 0, 0, 0, 0);
 	mutex_unlock(&rdev->srbm_mutex);
 
+	cik_pcie_init_compute_vmid(rdev);
+
 	cik_pcie_gart_tlb_flush(rdev);
 	DRM_INFO("PCIE GART of %uM enabled (table at 0x%016llX).\n",
 		 (unsigned)(rdev->mc.gtt_size >> 20),
@@ -5514,6 +5911,17 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
  */
 static void cik_pcie_gart_disable(struct radeon_device *rdev)
 {
+	unsigned i;
+
+	for (i = 1; i < 16; ++i) {
+		uint32_t reg;
+		if (i < 8)
+			reg = VM_CONTEXT0_PAGE_TABLE_BASE_ADDR + (i << 2);
+		else
+			reg = VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((i - 8) << 2);
+		rdev->vm_manager.saved_table_addr[i] = RREG32(reg);
+	}
+
 	/* Disable all tables */
 	WREG32(VM_CONTEXT0_CNTL, 0);
 	WREG32(VM_CONTEXT1_CNTL, 0);
@@ -5578,8 +5986,13 @@ int cik_ib_parse(struct radeon_device *rdev, struct radeon_ib *ib)
  */
 int cik_vm_init(struct radeon_device *rdev)
 {
-	/* number of VMs */
-	rdev->vm_manager.nvm = 16;
+	/*
+	 * number of VMs
+	 * VMID 0 is reserved for System
+	 * radeon graphics/compute will use VMIDs 1-7
+	 * amdkfd will use VMIDs 8-15
+	 */
+	rdev->vm_manager.nvm = RADEON_NUM_OF_VMIDS;
 	/* base offset of vram pages */
 	if (rdev->flags & RADEON_IS_IGP) {
 		u64 tmp = RREG32(MC_VM_FB_OFFSET);
@@ -5639,37 +6052,34 @@ static void cik_vm_decode_fault(struct radeon_device *rdev,
  * Update the page table base and flush the VM TLB
  * using the CP (CIK).
  */
-void cik_vm_flush(struct radeon_device *rdev, int ridx, struct radeon_vm *vm)
+void cik_vm_flush(struct radeon_device *rdev, struct radeon_ring *ring,
+		  unsigned vm_id, uint64_t pd_addr)
 {
-	struct radeon_ring *ring = &rdev->ring[ridx];
-	int usepfp = (ridx == RADEON_RING_TYPE_GFX_INDEX);
-
-	if (vm == NULL)
-		return;
+	int usepfp = (ring->idx == RADEON_RING_TYPE_GFX_INDEX);
 
 	radeon_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
 	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(usepfp) |
 				 WRITE_DATA_DST_SEL(0)));
-	if (vm->id < 8) {
+	if (vm_id < 8) {
 		radeon_ring_write(ring,
-				  (VM_CONTEXT0_PAGE_TABLE_BASE_ADDR + (vm->id << 2)) >> 2);
+				  (VM_CONTEXT0_PAGE_TABLE_BASE_ADDR + (vm_id << 2)) >> 2);
 	} else {
 		radeon_ring_write(ring,
-				  (VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((vm->id - 8) << 2)) >> 2);
+				  (VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((vm_id - 8) << 2)) >> 2);
 	}
 	radeon_ring_write(ring, 0);
-	radeon_ring_write(ring, vm->pd_gpu_addr >> 12);
+	radeon_ring_write(ring, pd_addr >> 12);
 
 	/* update SH_MEM_* regs */
 	radeon_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
-	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(0) |
+	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(usepfp) |
 				 WRITE_DATA_DST_SEL(0)));
 	radeon_ring_write(ring, SRBM_GFX_CNTL >> 2);
 	radeon_ring_write(ring, 0);
-	radeon_ring_write(ring, VMID(vm->id));
+	radeon_ring_write(ring, VMID(vm_id));
 
 	radeon_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 6));
-	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(0) |
+	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(usepfp) |
 				 WRITE_DATA_DST_SEL(0)));
 	radeon_ring_write(ring, SH_MEM_BASES >> 2);
 	radeon_ring_write(ring, 0);
@@ -5680,22 +6090,33 @@ void cik_vm_flush(struct radeon_device *rdev, int ridx, struct radeon_vm *vm)
 	radeon_ring_write(ring, 0); /* SH_MEM_APE1_LIMIT */
 
 	radeon_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
-	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(0) |
+	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(usepfp) |
 				 WRITE_DATA_DST_SEL(0)));
 	radeon_ring_write(ring, SRBM_GFX_CNTL >> 2);
 	radeon_ring_write(ring, 0);
 	radeon_ring_write(ring, VMID(0));
 
 	/* HDP flush */
-	cik_hdp_flush_cp_ring_emit(rdev, ridx);
+	cik_hdp_flush_cp_ring_emit(rdev, ring->idx);
 
 	/* bits 0-15 are the VM contexts0-15 */
 	radeon_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
-	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(0) |
+	radeon_ring_write(ring, (WRITE_DATA_ENGINE_SEL(usepfp) |
 				 WRITE_DATA_DST_SEL(0)));
 	radeon_ring_write(ring, VM_INVALIDATE_REQUEST >> 2);
 	radeon_ring_write(ring, 0);
-	radeon_ring_write(ring, 1 << vm->id);
+	radeon_ring_write(ring, 1 << vm_id);
+
+	/* wait for the invalidate to complete */
+	radeon_ring_write(ring, PACKET3(PACKET3_WAIT_REG_MEM, 5));
+	radeon_ring_write(ring, (WAIT_REG_MEM_OPERATION(0) | /* wait */
+				 WAIT_REG_MEM_FUNCTION(0) |  /* always */
+				 WAIT_REG_MEM_ENGINE(0))); /* me */
+	radeon_ring_write(ring, VM_INVALIDATE_REQUEST >> 2);
+	radeon_ring_write(ring, 0);
+	radeon_ring_write(ring, 0); /* ref */
+	radeon_ring_write(ring, 0); /* mask */
+	radeon_ring_write(ring, 0x20); /* poll interval */
 
 	/* compute doesn't have PFP */
 	if (usepfp) {
@@ -5740,6 +6161,7 @@ static void cik_wait_for_rlc_serdes(struct radeon_device *rdev)
 	u32 i, j, k;
 	u32 mask;
 
+	mutex_lock(&rdev->grbm_idx_mutex);
 	for (i = 0; i < rdev->config.cik.max_shader_engines; i++) {
 		for (j = 0; j < rdev->config.cik.max_sh_per_se; j++) {
 			cik_select_se_sh(rdev, i, j);
@@ -5751,6 +6173,7 @@ static void cik_wait_for_rlc_serdes(struct radeon_device *rdev)
 		}
 	}
 	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 
 	mask = SE_MASTER_BUSY_MASK | GC_MASTER_BUSY | TC0_MASTER_BUSY | TC1_MASTER_BUSY;
 	for (k = 0; k < rdev->usec_timeout; k++) {
@@ -5866,27 +6289,9 @@ static void cik_rlc_start(struct radeon_device *rdev)
 static int cik_rlc_resume(struct radeon_device *rdev)
 {
 	u32 i, size, tmp;
-	const __be32 *fw_data;
 
 	if (!rdev->rlc_fw)
 		return -EINVAL;
-
-	switch (rdev->family) {
-	case CHIP_BONAIRE:
-	case CHIP_HAWAII:
-	default:
-		size = BONAIRE_RLC_UCODE_SIZE;
-		break;
-	case CHIP_KAVERI:
-		size = KV_RLC_UCODE_SIZE;
-		break;
-	case CHIP_KABINI:
-		size = KB_RLC_UCODE_SIZE;
-		break;
-	case CHIP_MULLINS:
-		size = ML_RLC_UCODE_SIZE;
-		break;
-	}
 
 	cik_rlc_stop(rdev);
 
@@ -5903,19 +6308,55 @@ static int cik_rlc_resume(struct radeon_device *rdev)
 	WREG32(RLC_LB_CNTR_INIT, 0);
 	WREG32(RLC_LB_CNTR_MAX, 0x00008000);
 
+	mutex_lock(&rdev->grbm_idx_mutex);
 	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
 	WREG32(RLC_LB_INIT_CU_MASK, 0xffffffff);
 	WREG32(RLC_LB_PARAMS, 0x00600408);
 	WREG32(RLC_LB_CNTL, 0x80000004);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 
 	WREG32(RLC_MC_CNTL, 0);
 	WREG32(RLC_UCODE_CNTL, 0);
 
-	fw_data = (const __be32 *)rdev->rlc_fw->data;
+	if (rdev->new_fw) {
+		const struct rlc_firmware_header_v1_0 *hdr =
+			(const struct rlc_firmware_header_v1_0 *)rdev->rlc_fw->data;
+		const __le32 *fw_data = (const __le32 *)
+			(rdev->rlc_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+
+		radeon_ucode_print_rlc_hdr(&hdr->header);
+
+		size = le32_to_cpu(hdr->header.ucode_size_bytes) / 4;
 		WREG32(RLC_GPM_UCODE_ADDR, 0);
-	for (i = 0; i < size; i++)
-		WREG32(RLC_GPM_UCODE_DATA, be32_to_cpup(fw_data++));
-	WREG32(RLC_GPM_UCODE_ADDR, 0);
+		for (i = 0; i < size; i++)
+			WREG32(RLC_GPM_UCODE_DATA, le32_to_cpup(fw_data++));
+		WREG32(RLC_GPM_UCODE_ADDR, le32_to_cpu(hdr->header.ucode_version));
+	} else {
+		const __be32 *fw_data;
+
+		switch (rdev->family) {
+		case CHIP_BONAIRE:
+		case CHIP_HAWAII:
+		default:
+			size = BONAIRE_RLC_UCODE_SIZE;
+			break;
+		case CHIP_KAVERI:
+			size = KV_RLC_UCODE_SIZE;
+			break;
+		case CHIP_KABINI:
+			size = KB_RLC_UCODE_SIZE;
+			break;
+		case CHIP_MULLINS:
+			size = ML_RLC_UCODE_SIZE;
+			break;
+		}
+
+		fw_data = (const __be32 *)rdev->rlc_fw->data;
+		WREG32(RLC_GPM_UCODE_ADDR, 0);
+		for (i = 0; i < size; i++)
+			WREG32(RLC_GPM_UCODE_DATA, be32_to_cpup(fw_data++));
+		WREG32(RLC_GPM_UCODE_ADDR, 0);
+	}
 
 	/* XXX - find out what chips support lbpw */
 	cik_enable_lbpw(rdev, false);
@@ -5939,11 +6380,13 @@ static void cik_enable_cgcg(struct radeon_device *rdev, bool enable)
 
 		tmp = cik_halt_rlc(rdev);
 
+		mutex_lock(&rdev->grbm_idx_mutex);
 		cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
 		WREG32(RLC_SERDES_WR_CU_MASTER_MASK, 0xffffffff);
 		WREG32(RLC_SERDES_WR_NONCU_MASTER_MASK, 0xffffffff);
 		tmp2 = BPM_ADDR_MASK | CGCG_OVERRIDE_0 | CGLS_ENABLE;
 		WREG32(RLC_SERDES_WR_CTRL, tmp2);
+		mutex_unlock(&rdev->grbm_idx_mutex);
 
 		cik_update_rlc(rdev, tmp);
 
@@ -5979,17 +6422,20 @@ static void cik_enable_mgcg(struct radeon_device *rdev, bool enable)
 		}
 
 		orig = data = RREG32(RLC_CGTT_MGCG_OVERRIDE);
+		data |= 0x00000001;
 		data &= 0xfffffffd;
 		if (orig != data)
 			WREG32(RLC_CGTT_MGCG_OVERRIDE, data);
 
 		tmp = cik_halt_rlc(rdev);
 
+		mutex_lock(&rdev->grbm_idx_mutex);
 		cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
 		WREG32(RLC_SERDES_WR_CU_MASTER_MASK, 0xffffffff);
 		WREG32(RLC_SERDES_WR_NONCU_MASTER_MASK, 0xffffffff);
 		data = BPM_ADDR_MASK | MGCG_OVERRIDE_0;
 		WREG32(RLC_SERDES_WR_CTRL, data);
+		mutex_unlock(&rdev->grbm_idx_mutex);
 
 		cik_update_rlc(rdev, tmp);
 
@@ -6010,7 +6456,7 @@ static void cik_enable_mgcg(struct radeon_device *rdev, bool enable)
 		}
 	} else {
 		orig = data = RREG32(RLC_CGTT_MGCG_OVERRIDE);
-		data |= 0x00000002;
+		data |= 0x00000003;
 		if (orig != data)
 			WREG32(RLC_CGTT_MGCG_OVERRIDE, data);
 
@@ -6033,11 +6479,13 @@ static void cik_enable_mgcg(struct radeon_device *rdev, bool enable)
 
 		tmp = cik_halt_rlc(rdev);
 
+		mutex_lock(&rdev->grbm_idx_mutex);
 		cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
 		WREG32(RLC_SERDES_WR_CU_MASTER_MASK, 0xffffffff);
 		WREG32(RLC_SERDES_WR_NONCU_MASTER_MASK, 0xffffffff);
 		data = BPM_ADDR_MASK | MGCG_OVERRIDE_1;
 		WREG32(RLC_SERDES_WR_CTRL, data);
+		mutex_unlock(&rdev->grbm_idx_mutex);
 
 		cik_update_rlc(rdev, tmp);
 	}
@@ -6349,11 +6797,10 @@ static void cik_enable_gds_pg(struct radeon_device *rdev, bool enable)
 
 void cik_init_cp_pg_table(struct radeon_device *rdev)
 {
-	const __be32 *fw_data;
 	volatile u32 *dst_ptr;
 	int me, i, max_me = 4;
 	u32 bo_offset = 0;
-	u32 table_offset;
+	u32 table_offset, table_size;
 
 	if (rdev->family == CHIP_KAVERI)
 		max_me = 5;
@@ -6364,24 +6811,71 @@ void cik_init_cp_pg_table(struct radeon_device *rdev)
 	/* write the cp table buffer */
 	dst_ptr = rdev->rlc.cp_table_ptr;
 	for (me = 0; me < max_me; me++) {
-		if (me == 0) {
-			fw_data = (const __be32 *)rdev->ce_fw->data;
-			table_offset = CP_ME_TABLE_OFFSET;
-		} else if (me == 1) {
-			fw_data = (const __be32 *)rdev->pfp_fw->data;
-			table_offset = CP_ME_TABLE_OFFSET;
-		} else if (me == 2) {
-			fw_data = (const __be32 *)rdev->me_fw->data;
-			table_offset = CP_ME_TABLE_OFFSET;
-		} else {
-			fw_data = (const __be32 *)rdev->mec_fw->data;
-			table_offset = CP_MEC_TABLE_OFFSET;
-		}
+		if (rdev->new_fw) {
+			const __le32 *fw_data;
+			const struct gfx_firmware_header_v1_0 *hdr;
 
-		for (i = 0; i < CP_ME_TABLE_SIZE; i ++) {
-			dst_ptr[bo_offset + i] = cpu_to_le32(be32_to_cpu(fw_data[table_offset + i]));
+			if (me == 0) {
+				hdr = (const struct gfx_firmware_header_v1_0 *)rdev->ce_fw->data;
+				fw_data = (const __le32 *)
+					(rdev->ce_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+				table_offset = le32_to_cpu(hdr->jt_offset);
+				table_size = le32_to_cpu(hdr->jt_size);
+			} else if (me == 1) {
+				hdr = (const struct gfx_firmware_header_v1_0 *)rdev->pfp_fw->data;
+				fw_data = (const __le32 *)
+					(rdev->pfp_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+				table_offset = le32_to_cpu(hdr->jt_offset);
+				table_size = le32_to_cpu(hdr->jt_size);
+			} else if (me == 2) {
+				hdr = (const struct gfx_firmware_header_v1_0 *)rdev->me_fw->data;
+				fw_data = (const __le32 *)
+					(rdev->me_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+				table_offset = le32_to_cpu(hdr->jt_offset);
+				table_size = le32_to_cpu(hdr->jt_size);
+			} else if (me == 3) {
+				hdr = (const struct gfx_firmware_header_v1_0 *)rdev->mec_fw->data;
+				fw_data = (const __le32 *)
+					(rdev->mec_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+				table_offset = le32_to_cpu(hdr->jt_offset);
+				table_size = le32_to_cpu(hdr->jt_size);
+			} else {
+				hdr = (const struct gfx_firmware_header_v1_0 *)rdev->mec2_fw->data;
+				fw_data = (const __le32 *)
+					(rdev->mec2_fw->data + le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+				table_offset = le32_to_cpu(hdr->jt_offset);
+				table_size = le32_to_cpu(hdr->jt_size);
+			}
+
+			for (i = 0; i < table_size; i ++) {
+				dst_ptr[bo_offset + i] =
+					cpu_to_le32(le32_to_cpu(fw_data[table_offset + i]));
+			}
+			bo_offset += table_size;
+		} else {
+			const __be32 *fw_data;
+			table_size = CP_ME_TABLE_SIZE;
+
+			if (me == 0) {
+				fw_data = (const __be32 *)rdev->ce_fw->data;
+				table_offset = CP_ME_TABLE_OFFSET;
+			} else if (me == 1) {
+				fw_data = (const __be32 *)rdev->pfp_fw->data;
+				table_offset = CP_ME_TABLE_OFFSET;
+			} else if (me == 2) {
+				fw_data = (const __be32 *)rdev->me_fw->data;
+				table_offset = CP_ME_TABLE_OFFSET;
+			} else {
+				fw_data = (const __be32 *)rdev->mec_fw->data;
+				table_offset = CP_MEC_TABLE_OFFSET;
+			}
+
+			for (i = 0; i < table_size; i ++) {
+				dst_ptr[bo_offset + i] =
+					cpu_to_le32(be32_to_cpu(fw_data[table_offset + i]));
+			}
+			bo_offset += table_size;
 		}
-		bo_offset += CP_ME_TABLE_SIZE;
 	}
 }
 
@@ -6420,10 +6914,12 @@ static u32 cik_get_cu_active_bitmap(struct radeon_device *rdev, u32 se, u32 sh)
 	u32 mask = 0, tmp, tmp1;
 	int i;
 
+	mutex_lock(&rdev->grbm_idx_mutex);
 	cik_select_se_sh(rdev, se, sh);
 	tmp = RREG32(CC_GC_SHADER_ARRAY_CONFIG);
 	tmp1 = RREG32(GC_USER_SHADER_ARRAY_CONFIG);
 	cik_select_se_sh(rdev, 0xffffffff, 0xffffffff);
+	mutex_unlock(&rdev->grbm_idx_mutex);
 
 	tmp &= 0xffff0000;
 
@@ -6769,6 +7265,8 @@ static void cik_disable_interrupt_state(struct radeon_device *rdev)
 	WREG32(CP_ME2_PIPE3_INT_CNTL, 0);
 	/* grbm */
 	WREG32(GRBM_INT_CNTL, 0);
+	/* SRBM */
+	WREG32(SRBM_INT_CNTL, 0);
 	/* vline/vblank, etc. */
 	WREG32(LB_INTERRUPT_MASK + EVERGREEN_CRTC0_REGISTER_OFFSET, 0);
 	WREG32(LB_INTERRUPT_MASK + EVERGREEN_CRTC1_REGISTER_OFFSET, 0);
@@ -6907,13 +7405,11 @@ static int cik_irq_init(struct radeon_device *rdev)
 int cik_irq_set(struct radeon_device *rdev)
 {
 	u32 cp_int_cntl;
-	u32 cp_m1p0, cp_m1p1, cp_m1p2, cp_m1p3;
-	u32 cp_m2p0, cp_m2p1, cp_m2p2, cp_m2p3;
+	u32 cp_m1p0;
 	u32 crtc1 = 0, crtc2 = 0, crtc3 = 0, crtc4 = 0, crtc5 = 0, crtc6 = 0;
 	u32 hpd1, hpd2, hpd3, hpd4, hpd5, hpd6;
 	u32 grbm_int_cntl = 0;
 	u32 dma_cntl, dma_cntl1;
-	u32 thermal_int;
 
 	if (!rdev->irq.installed) {
 		WARN(1, "Can't enable IRQ/MSI because no handler is installed\n");
@@ -6931,31 +7427,17 @@ int cik_irq_set(struct radeon_device *rdev)
 		(CNTX_BUSY_INT_ENABLE | CNTX_EMPTY_INT_ENABLE);
 	cp_int_cntl |= PRIV_INSTR_INT_ENABLE | PRIV_REG_INT_ENABLE;
 
-	hpd1 = RREG32(DC_HPD1_INT_CONTROL) & ~DC_HPDx_INT_EN;
-	hpd2 = RREG32(DC_HPD2_INT_CONTROL) & ~DC_HPDx_INT_EN;
-	hpd3 = RREG32(DC_HPD3_INT_CONTROL) & ~DC_HPDx_INT_EN;
-	hpd4 = RREG32(DC_HPD4_INT_CONTROL) & ~DC_HPDx_INT_EN;
-	hpd5 = RREG32(DC_HPD5_INT_CONTROL) & ~DC_HPDx_INT_EN;
-	hpd6 = RREG32(DC_HPD6_INT_CONTROL) & ~DC_HPDx_INT_EN;
+	hpd1 = RREG32(DC_HPD1_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
+	hpd2 = RREG32(DC_HPD2_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
+	hpd3 = RREG32(DC_HPD3_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
+	hpd4 = RREG32(DC_HPD4_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
+	hpd5 = RREG32(DC_HPD5_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
+	hpd6 = RREG32(DC_HPD6_INT_CONTROL) & ~(DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN);
 
 	dma_cntl = RREG32(SDMA0_CNTL + SDMA0_REGISTER_OFFSET) & ~TRAP_ENABLE;
 	dma_cntl1 = RREG32(SDMA0_CNTL + SDMA1_REGISTER_OFFSET) & ~TRAP_ENABLE;
 
 	cp_m1p0 = RREG32(CP_ME1_PIPE0_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m1p1 = RREG32(CP_ME1_PIPE1_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m1p2 = RREG32(CP_ME1_PIPE2_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m1p3 = RREG32(CP_ME1_PIPE3_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m2p0 = RREG32(CP_ME2_PIPE0_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m2p1 = RREG32(CP_ME2_PIPE1_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m2p2 = RREG32(CP_ME2_PIPE2_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-	cp_m2p3 = RREG32(CP_ME2_PIPE3_INT_CNTL) & ~TIME_STAMP_INT_ENABLE;
-
-	if (rdev->flags & RADEON_IS_IGP)
-		thermal_int = RREG32_SMC(CG_THERMAL_INT_CTRL) &
-			~(THERM_INTH_MASK | THERM_INTL_MASK);
-	else
-		thermal_int = RREG32_SMC(CG_THERMAL_INT) &
-			~(THERM_INT_MASK_HIGH | THERM_INT_MASK_LOW);
 
 	/* enable CP interrupts on all rings */
 	if (atomic_read(&rdev->irq.ring_int[RADEON_RING_TYPE_GFX_INDEX])) {
@@ -6969,33 +7451,6 @@ int cik_irq_set(struct radeon_device *rdev)
 			switch (ring->pipe) {
 			case 0:
 				cp_m1p0 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 1:
-				cp_m1p1 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 2:
-				cp_m1p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 3:
-				cp_m1p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			default:
-				DRM_DEBUG("si_irq_set: sw int cp1 invalid pipe %d\n", ring->pipe);
-				break;
-			}
-		} else if (ring->me == 2) {
-			switch (ring->pipe) {
-			case 0:
-				cp_m2p0 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 1:
-				cp_m2p1 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 2:
-				cp_m2p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 3:
-				cp_m2p2 |= TIME_STAMP_INT_ENABLE;
 				break;
 			default:
 				DRM_DEBUG("si_irq_set: sw int cp1 invalid pipe %d\n", ring->pipe);
@@ -7012,33 +7467,6 @@ int cik_irq_set(struct radeon_device *rdev)
 			switch (ring->pipe) {
 			case 0:
 				cp_m1p0 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 1:
-				cp_m1p1 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 2:
-				cp_m1p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 3:
-				cp_m1p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			default:
-				DRM_DEBUG("si_irq_set: sw int cp2 invalid pipe %d\n", ring->pipe);
-				break;
-			}
-		} else if (ring->me == 2) {
-			switch (ring->pipe) {
-			case 0:
-				cp_m2p0 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 1:
-				cp_m2p1 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 2:
-				cp_m2p2 |= TIME_STAMP_INT_ENABLE;
-				break;
-			case 3:
-				cp_m2p2 |= TIME_STAMP_INT_ENABLE;
 				break;
 			default:
 				DRM_DEBUG("si_irq_set: sw int cp2 invalid pipe %d\n", ring->pipe);
@@ -7091,35 +7519,27 @@ int cik_irq_set(struct radeon_device *rdev)
 	}
 	if (rdev->irq.hpd[0]) {
 		DRM_DEBUG("cik_irq_set: hpd 1\n");
-		hpd1 |= DC_HPDx_INT_EN;
+		hpd1 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 	if (rdev->irq.hpd[1]) {
 		DRM_DEBUG("cik_irq_set: hpd 2\n");
-		hpd2 |= DC_HPDx_INT_EN;
+		hpd2 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 	if (rdev->irq.hpd[2]) {
 		DRM_DEBUG("cik_irq_set: hpd 3\n");
-		hpd3 |= DC_HPDx_INT_EN;
+		hpd3 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 	if (rdev->irq.hpd[3]) {
 		DRM_DEBUG("cik_irq_set: hpd 4\n");
-		hpd4 |= DC_HPDx_INT_EN;
+		hpd4 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 	if (rdev->irq.hpd[4]) {
 		DRM_DEBUG("cik_irq_set: hpd 5\n");
-		hpd5 |= DC_HPDx_INT_EN;
+		hpd5 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 	if (rdev->irq.hpd[5]) {
 		DRM_DEBUG("cik_irq_set: hpd 6\n");
-		hpd6 |= DC_HPDx_INT_EN;
-	}
-
-	if (rdev->irq.dpm_thermal) {
-		DRM_DEBUG("dpm thermal\n");
-		if (rdev->flags & RADEON_IS_IGP)
-			thermal_int |= THERM_INTH_MASK | THERM_INTL_MASK;
-		else
-			thermal_int |= THERM_INT_MASK_HIGH | THERM_INT_MASK_LOW;
+		hpd6 |= DC_HPDx_INT_EN | DC_HPDx_RX_INT_EN;
 	}
 
 	WREG32(CP_INT_CNTL_RING0, cp_int_cntl);
@@ -7128,13 +7548,6 @@ int cik_irq_set(struct radeon_device *rdev)
 	WREG32(SDMA0_CNTL + SDMA1_REGISTER_OFFSET, dma_cntl1);
 
 	WREG32(CP_ME1_PIPE0_INT_CNTL, cp_m1p0);
-	WREG32(CP_ME1_PIPE1_INT_CNTL, cp_m1p1);
-	WREG32(CP_ME1_PIPE2_INT_CNTL, cp_m1p2);
-	WREG32(CP_ME1_PIPE3_INT_CNTL, cp_m1p3);
-	WREG32(CP_ME2_PIPE0_INT_CNTL, cp_m2p0);
-	WREG32(CP_ME2_PIPE1_INT_CNTL, cp_m2p1);
-	WREG32(CP_ME2_PIPE2_INT_CNTL, cp_m2p2);
-	WREG32(CP_ME2_PIPE3_INT_CNTL, cp_m2p3);
 
 	WREG32(GRBM_INT_CNTL, grbm_int_cntl);
 
@@ -7175,10 +7588,8 @@ int cik_irq_set(struct radeon_device *rdev)
 	WREG32(DC_HPD5_INT_CONTROL, hpd5);
 	WREG32(DC_HPD6_INT_CONTROL, hpd6);
 
-	if (rdev->flags & RADEON_IS_IGP)
-		WREG32_SMC(CG_THERMAL_INT_CTRL, thermal_int);
-	else
-		WREG32_SMC(CG_THERMAL_INT, thermal_int);
+	/* posting read */
+	RREG32(SRBM_STATUS);
 
 	return 0;
 }
@@ -7300,6 +7711,36 @@ static inline void cik_irq_ack(struct radeon_device *rdev)
 		tmp |= DC_HPDx_INT_ACK;
 		WREG32(DC_HPD6_INT_CONTROL, tmp);
 	}
+	if (rdev->irq.stat_regs.cik.disp_int & DC_HPD1_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD1_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD1_INT_CONTROL, tmp);
+	}
+	if (rdev->irq.stat_regs.cik.disp_int_cont & DC_HPD2_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD2_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD2_INT_CONTROL, tmp);
+	}
+	if (rdev->irq.stat_regs.cik.disp_int_cont2 & DC_HPD3_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD3_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD3_INT_CONTROL, tmp);
+	}
+	if (rdev->irq.stat_regs.cik.disp_int_cont3 & DC_HPD4_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD4_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD4_INT_CONTROL, tmp);
+	}
+	if (rdev->irq.stat_regs.cik.disp_int_cont4 & DC_HPD5_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD5_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD5_INT_CONTROL, tmp);
+	}
+	if (rdev->irq.stat_regs.cik.disp_int_cont5 & DC_HPD6_RX_INTERRUPT) {
+		tmp = RREG32(DC_HPD5_INT_CONTROL);
+		tmp |= DC_HPDx_RX_INT_ACK;
+		WREG32(DC_HPD6_INT_CONTROL, tmp);
+	}
 }
 
 /**
@@ -7368,17 +7809,17 @@ static inline u32 cik_get_ih_wptr(struct radeon_device *rdev)
 		wptr = RREG32(IH_RB_WPTR);
 
 	if (wptr & RB_OVERFLOW) {
+		wptr &= ~RB_OVERFLOW;
 		/* When a ring buffer overflow happen start parsing interrupt
 		 * from the last not overwritten vector (wptr + 16). Hopefully
 		 * this should allow us to catchup.
 		 */
-		dev_warn(rdev->dev, "IH ring buffer overflow (0x%08X, %d, %d)\n",
-			wptr, rdev->ih.rptr, (wptr + 16) + rdev->ih.ptr_mask);
+		dev_warn(rdev->dev, "IH ring buffer overflow (0x%08X, 0x%08X, 0x%08X)\n",
+			 wptr, rdev->ih.rptr, (wptr + 16) & rdev->ih.ptr_mask);
 		rdev->ih.rptr = (wptr + 16) & rdev->ih.ptr_mask;
 		tmp = RREG32(IH_RB_CNTL);
 		tmp |= IH_WPTR_OVERFLOW_CLEAR;
 		WREG32(IH_RB_CNTL, tmp);
-		wptr &= ~RB_OVERFLOW;
 	}
 	return (wptr & rdev->ih.ptr_mask);
 }
@@ -7425,6 +7866,7 @@ int cik_irq_process(struct radeon_device *rdev)
 	u8 me_id, pipe_id, queue_id;
 	u32 ring_index;
 	bool queue_hotplug = false;
+	bool queue_dp = false;
 	bool queue_reset = false;
 	u32 addr, status, mc_client;
 	bool queue_thermal = false;
@@ -7451,6 +7893,10 @@ restart_ih:
 	while (rptr != wptr) {
 		/* wptr/rptr are in bytes! */
 		ring_index = rptr / 4;
+
+		radeon_kfd_interrupt(rdev,
+				(const void *) &rdev->ih.ring[ring_index]);
+
 		src_id =  le32_to_cpu(rdev->ih.ring[ring_index]) & 0xff;
 		src_data = le32_to_cpu(rdev->ih.ring[ring_index + 1]) & 0xfffffff;
 		ring_id = le32_to_cpu(rdev->ih.ring[ring_index + 2]) & 0xff;
@@ -7619,7 +8065,8 @@ restart_ih:
 		case 16: /* D5 page flip */
 		case 18: /* D6 page flip */
 			DRM_DEBUG("IH: D%d flip\n", ((src_id - 8) >> 1) + 1);
-			radeon_crtc_handle_flip(rdev, (src_id - 8) >> 1);
+			if (radeon_use_pflipirq > 0)
+				radeon_crtc_handle_flip(rdev, (src_id - 8) >> 1);
 			break;
 		case 42: /* HPD hotplug */
 			switch (src_data) {
@@ -7665,10 +8112,56 @@ restart_ih:
 					DRM_DEBUG("IH: HPD6\n");
 				}
 				break;
+			case 6:
+				if (rdev->irq.stat_regs.cik.disp_int & DC_HPD1_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int &= ~DC_HPD1_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 1\n");
+				}
+				break;
+			case 7:
+				if (rdev->irq.stat_regs.cik.disp_int_cont & DC_HPD2_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int_cont &= ~DC_HPD2_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 2\n");
+				}
+				break;
+			case 8:
+				if (rdev->irq.stat_regs.cik.disp_int_cont2 & DC_HPD3_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int_cont2 &= ~DC_HPD3_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 3\n");
+				}
+				break;
+			case 9:
+				if (rdev->irq.stat_regs.cik.disp_int_cont3 & DC_HPD4_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int_cont3 &= ~DC_HPD4_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 4\n");
+				}
+				break;
+			case 10:
+				if (rdev->irq.stat_regs.cik.disp_int_cont4 & DC_HPD5_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int_cont4 &= ~DC_HPD5_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 5\n");
+				}
+				break;
+			case 11:
+				if (rdev->irq.stat_regs.cik.disp_int_cont5 & DC_HPD6_RX_INTERRUPT) {
+					rdev->irq.stat_regs.cik.disp_int_cont5 &= ~DC_HPD6_RX_INTERRUPT;
+					queue_dp = true;
+					DRM_DEBUG("IH: HPD_RX 6\n");
+				}
+				break;
 			default:
 				DRM_DEBUG("Unhandled interrupt: %d %d\n", src_id, src_data);
 				break;
 			}
+			break;
+		case 96:
+			DRM_ERROR("SRBM_READ_ERROR: 0x%x\n", RREG32(SRBM_READ_ERROR));
+			WREG32(SRBM_INT_ACK, 0x1);
 			break;
 		case 124: /* UVD */
 			DRM_DEBUG("IH: UVD int: 0x%08x\n", src_data);
@@ -7867,15 +8360,19 @@ restart_ih:
 		/* wptr/rptr are in bytes! */
 		rptr += 16;
 		rptr &= rdev->ih.ptr_mask;
+		WREG32(IH_RB_RPTR, rptr);
 	}
+	if (queue_dp)
+		schedule_work(&rdev->dp_work);
 	if (queue_hotplug)
 		schedule_work(&rdev->hotplug_work);
-	if (queue_reset)
-		schedule_work(&rdev->reset_work);
+	if (queue_reset) {
+		rdev->needs_reset = true;
+		wake_up_all(&rdev->fence_queue);
+	}
 	if (queue_thermal)
 		schedule_work(&rdev->pm.dpm.thermal.work);
 	rdev->ih.rptr = rptr;
-	WREG32(IH_RB_RPTR, rdev->ih.rptr);
 	atomic_set(&rdev->ih.lock, 0);
 
 	/* make sure wptr hasn't changed while processing */
@@ -8036,7 +8533,10 @@ static int cik_startup(struct radeon_device *rdev)
 	cik_irq_set(rdev);
 
 	if (rdev->family == CHIP_HAWAII) {
-		nop = RADEON_CP_PACKET2;
+		if (rdev->new_fw)
+			nop = PACKET3(PACKET3_NOP, 0x3FFF);
+		else
+			nop = RADEON_CP_PACKET2;
 	} else {
 		nop = PACKET3(PACKET3_NOP, 0x3FFF);
 	}
@@ -8130,7 +8630,11 @@ static int cik_startup(struct radeon_device *rdev)
 		return r;
 	}
 
-	r = dce6_audio_init(rdev);
+	r = radeon_audio_init(rdev);
+	if (r)
+		return r;
+
+	r = radeon_kfd_resume(rdev);
 	if (r)
 		return r;
 
@@ -8182,8 +8686,9 @@ int cik_resume(struct radeon_device *rdev)
  */
 int cik_suspend(struct radeon_device *rdev)
 {
+	radeon_kfd_suspend(rdev);
 	radeon_pm_suspend(rdev);
-	dce6_audio_fini(rdev);
+	radeon_audio_fini(rdev);
 	radeon_vm_manager_fini(rdev);
 	cik_cp_enable(rdev, false);
 	cik_sdma_enable(rdev, false);
@@ -9060,6 +9565,9 @@ void dce8_bandwidth_update(struct radeon_device *rdev)
 	u32 num_heads = 0, lb_size;
 	int i;
 
+	if (!rdev->mode_info.mode_config_initialized)
+		return;
+
 	radeon_update_display_priority(rdev);
 
 	for (i = 0; i < rdev->num_crtc; i++) {
@@ -9175,6 +9683,9 @@ static void cik_pcie_gen3_enable(struct radeon_device *rdev)
 	u32 speed_cntl, mask, current_data_rate;
 	int ret, i;
 	u16 tmp16;
+
+	if (pci_is_root_bus(rdev->pdev->bus))
+		return;
 
 	if (radeon_pcie_gen2 == 0)
 		return;
@@ -9402,7 +9913,8 @@ static void cik_program_aspm(struct radeon_device *rdev)
 			if (orig != data)
 				WREG32_PCIE_PORT(PCIE_LC_LINK_WIDTH_CNTL, data);
 
-			if (!disable_clkreq) {
+			if (!disable_clkreq &&
+			    !pci_is_root_bus(rdev->pdev->bus)) {
 				struct pci_dev *root = rdev->pdev->bus->self;
 				u32 lnkcap;
 

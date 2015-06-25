@@ -11,10 +11,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
  */
 
 #include <linux/delay.h>
@@ -874,8 +870,8 @@ static void pch_spi_request_dma(struct pch_spi_data *data, int bpw)
 	dma_cap_set(DMA_SLAVE, mask);
 
 	/* Get DMA's dev information */
-	dma_dev = pci_get_bus_and_slot(data->board_dat->pdev->bus->number,
-				       PCI_DEVFN(12, 0));
+	dma_dev = pci_get_slot(data->board_dat->pdev->bus,
+			PCI_DEVFN(PCI_SLOT(data->board_dat->pdev->devfn), 0));
 
 	/* Set Tx DMA */
 	param = &dma->param_tx;
@@ -1047,8 +1043,8 @@ static void pch_spi_handle_dma(struct pch_spi_data *data, int *bpw)
 					num, DMA_DEV_TO_MEM,
 					DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (!desc_rx) {
-		dev_err(&data->master->dev, "%s:device_prep_slave_sg Failed\n",
-			__func__);
+		dev_err(&data->master->dev,
+			"%s:dmaengine_prep_slave_sg Failed\n", __func__);
 		return;
 	}
 	dma_sync_sg_for_device(&data->master->dev, sg, num, DMA_FROM_DEVICE);
@@ -1106,8 +1102,8 @@ static void pch_spi_handle_dma(struct pch_spi_data *data, int *bpw)
 					sg, num, DMA_MEM_TO_DEV,
 					DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (!desc_tx) {
-		dev_err(&data->master->dev, "%s:device_prep_slave_sg Failed\n",
-			__func__);
+		dev_err(&data->master->dev,
+			"%s:dmaengine_prep_slave_sg Failed\n", __func__);
 		return;
 	}
 	dma_sync_sg_for_device(&data->master->dev, sg, num, DMA_TO_DEVICE);
@@ -1561,7 +1557,6 @@ static int pch_spi_pd_resume(struct platform_device *pd_dev)
 static struct platform_driver pch_spi_pd_driver = {
 	.driver = {
 		.name = "pch-spi",
-		.owner = THIS_MODULE,
 	},
 	.probe = pch_spi_pd_probe,
 	.remove = pch_spi_pd_remove,

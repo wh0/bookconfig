@@ -107,7 +107,7 @@ static int io;
 static int irq;
 static bool iommap;
 static int ioshift;
-static bool softcarrier = 1;
+static bool softcarrier = true;
 static bool share_irq;
 static bool debug;
 static int sense = -1;	/* -1 = auto, 0 = active high, 1 = active low */
@@ -266,7 +266,7 @@ static unsigned long space_width;
 /* fetch serial input packet (1 byte) from register offset */
 static u8 sinp(int offset)
 {
-	if (iommap != 0)
+	if (iommap)
 		/* the register is memory-mapped */
 		offset <<= ioshift;
 
@@ -276,7 +276,7 @@ static u8 sinp(int offset)
 /* write serial output packet (1 byte) of value to register offset */
 static void soutp(int offset, u8 value)
 {
-	if (iommap != 0)
+	if (iommap)
 		/* the register is memory-mapped */
 		offset <<= ioshift;
 
@@ -344,7 +344,7 @@ static int init_timing_params(unsigned int new_duty_cycle,
 	/* How many clocks in a microsecond?, avoiding long long divide */
 	work = loops_per_sec;
 	work *= 4295;  /* 4295 = 2^32 / 1e6 */
-	conv_us_to_clocks = (work >> 32);
+	conv_us_to_clocks = work >> 32;
 
 	/*
 	 * Carrier period in clocks, approach good up to 32GHz clock,
@@ -496,6 +496,7 @@ static long send_pulse_homebrew_softcarrier(unsigned long length)
 {
 	int flag;
 	unsigned long actual, target, d;
+
 	length <<= 8;
 
 	actual = 0; target = 0; flag = 0;
@@ -528,11 +529,10 @@ static long send_pulse_homebrew(unsigned long length)
 
 	if (softcarrier)
 		return send_pulse_homebrew_softcarrier(length);
-	else {
-		on();
-		safe_udelay(length);
-		return 0;
-	}
+
+	on();
+	safe_udelay(length);
+	return 0;
 }
 
 static void send_space_irdeo(long length)
@@ -782,9 +782,9 @@ static int lirc_serial_probe(struct platform_device *dev)
 {
 	int i, nlow, nhigh, result;
 
-	result = request_irq(irq, lirc_irq_handler,
+	result = devm_request_irq(&dev->dev, irq, lirc_irq_handler,
 			     (share_irq ? IRQF_SHARED : 0),
-			     LIRC_DRIVER_NAME, (void *)&hardware);
+			     LIRC_DRIVER_NAME, &hardware);
 	if (result < 0) {
 		if (result == -EBUSY)
 			dev_err(&dev->dev, "IRQ %d busy\n", irq);
@@ -799,23 +799,23 @@ static int lirc_serial_probe(struct platform_device *dev)
 	 * For memory mapped I/O you *might* need to use ioremap() first,
 	 * for the NSLU2 it's done in boot code.
 	 */
-	if (((iommap != 0)
-	     && (request_mem_region(iommap, 8 << ioshift,
-				    LIRC_DRIVER_NAME) == NULL))
-	   || ((iommap == 0)
-	       && (request_region(io, 8, LIRC_DRIVER_NAME) == NULL))) {
+	if (((iommap)
+	     && (devm_request_mem_region(&dev->dev, iommap, 8 << ioshift,
+					 LIRC_DRIVER_NAME) == NULL))
+	   || ((!iommap)
+	       && (devm_request_region(&dev->dev, io, 8,
+				       LIRC_DRIVER_NAME) == NULL))) {
 		dev_err(&dev->dev, "port %04x already in use\n", io);
 		dev_warn(&dev->dev, "use 'setserial /dev/ttySX uart none'\n");
 		dev_warn(&dev->dev,
 			 "or compile the serial port driver as module and\n");
 		dev_warn(&dev->dev, "make sure this module is loaded first\n");
-		result = -EBUSY;
-		goto exit_free_irq;
+		return -EBUSY;
 	}
 
 	result = hardware_init_port();
 	if (result < 0)
-		goto exit_release_region;
+		return result;
 
 	/* Initialize pulse/space widths */
 	init_timing_params(duty_cycle, freq);
@@ -838,7 +838,7 @@ static int lirc_serial_probe(struct platform_device *dev)
 				nhigh++;
 			msleep(40);
 		}
-		sense = (nlow >= nhigh ? 1 : 0);
+		sense = nlow >= nhigh ? 1 : 0;
 		dev_info(&dev->dev, "auto-detected active %s receiver\n",
 			 sense ? "low" : "high");
 	} else
@@ -846,28 +846,6 @@ static int lirc_serial_probe(struct platform_device *dev)
 			 sense ? "low" : "high");
 
 	dprintk("Interrupt %d, port %04x obtained\n", irq, io);
-	return 0;
-
-exit_release_region:
-	if (iommap != 0)
-		release_mem_region(iommap, 8 << ioshift);
-	else
-		release_region(io, 8);
-exit_free_irq:
-	free_irq(irq, (void *)&hardware);
-
-	return result;
-}
-
-static int lirc_serial_remove(struct platform_device *dev)
-{
-	free_irq(irq, (void *)&hardware);
-
-	if (iommap != 0)
-		release_mem_region(iommap, 8 << ioshift);
-	else
-		release_region(io, 8);
-
 	return 0;
 }
 
@@ -970,7 +948,6 @@ static long lirc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 
 	case LIRC_GET_LENGTH:
 		return -ENOIOCTLCMD;
-		break;
 
 	case LIRC_SET_SEND_DUTY_CYCLE:
 		dprintk("SET_SEND_DUTY_CYCLE\n");
@@ -983,7 +960,6 @@ static long lirc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		if (value <= 0 || value > 100)
 			return -EINVAL;
 		return init_timing_params(value, freq);
-		break;
 
 	case LIRC_SET_SEND_CARRIER:
 		dprintk("SET_SEND_CARRIER\n");
@@ -996,7 +972,6 @@ static long lirc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		if (value > 500000 || value < 20000)
 			return -EINVAL;
 		return init_timing_params(duty_cycle, value);
-		break;
 
 	default:
 		return lirc_dev_fop_ioctl(filep, cmd, arg);
@@ -1081,12 +1056,10 @@ static int lirc_serial_resume(struct platform_device *dev)
 
 static struct platform_driver lirc_serial_driver = {
 	.probe		= lirc_serial_probe,
-	.remove		= lirc_serial_remove,
 	.suspend	= lirc_serial_suspend,
 	.resume		= lirc_serial_resume,
 	.driver		= {
 		.name	= "lirc_serial",
-		.owner	= THIS_MODULE,
 	},
 };
 

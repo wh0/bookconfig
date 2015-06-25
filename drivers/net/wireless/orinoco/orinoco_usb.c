@@ -364,9 +364,7 @@ static struct request_context *ezusb_alloc_ctx(struct ezusb_priv *upriv,
 	atomic_set(&ctx->refcount, 1);
 	init_completion(&ctx->done);
 
-	init_timer(&ctx->timer);
-	ctx->timer.function = ezusb_request_timerfn;
-	ctx->timer.data = (u_long) ctx;
+	setup_timer(&ctx->timer, ezusb_request_timerfn, (u_long)ctx);
 	return ctx;
 }
 
@@ -534,7 +532,7 @@ static void ezusb_request_out_callback(struct urb *urb)
 
 	if (ctx->killed) {
 		spin_unlock_irqrestore(&upriv->req_lock, flags);
-		pr_warning("interrupt called with dead ctx");
+		pr_warn("interrupt called with dead ctx\n");
 		goto out;
 	}
 
@@ -671,8 +669,8 @@ static void ezusb_request_in_callback(struct ezusb_priv *upriv,
 	default:
 		spin_unlock_irqrestore(&upriv->req_lock, flags);
 
-		pr_warning("Matched IN URB, unexpected context state(0x%x)",
-		     state);
+		pr_warn("Matched IN URB, unexpected context state(0x%x)\n",
+			state);
 		/* Throw this CTX away and try submitting another */
 		del_timer(&ctx->timer);
 		ctx->outurb->transfer_flags |= URB_ASYNC_UNLINK;
@@ -921,7 +919,6 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 			retval = -EFAULT;
 		}
 		goto exit;
-		break;
 	}
 	if (ctx->in_rid) {
 		struct ezusb_packet *ans = ctx->buf;
@@ -1395,12 +1392,12 @@ static void ezusb_bulk_in_callback(struct urb *urb)
 		/* When a device gets unplugged we get this every time
 		 * we resubmit, flooding the logs.  Since we don't use
 		 * USB timeouts, it shouldn't happen any other time*/
-		pr_warning("%s: urb timed out, not resubmiting", __func__);
+		pr_warn("%s: urb timed out, not resubmitting\n", __func__);
 		return;
 	}
 	if (urb->status == -ECONNABORTED) {
-		pr_warning("%s: connection abort, resubmiting urb",
-		     __func__);
+		pr_warn("%s: connection abort, resubmitting urb\n",
+			__func__);
 		goto resubmit;
 	}
 	if ((urb->status == -EILSEQ)
@@ -1606,13 +1603,10 @@ static int ezusb_probe(struct usb_interface *interface,
 	for (i = 0; i < iface_desc->bNumEndpoints; ++i) {
 		ep = &interface->altsetting[0].endpoint[i].desc;
 
-		if (((ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
-		     == USB_DIR_IN) &&
-		    ((ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-		     == USB_ENDPOINT_XFER_BULK)) {
+		if (usb_endpoint_is_bulk_in(ep)) {
 			/* we found a bulk in endpoint */
 			if (upriv->read_urb != NULL) {
-				pr_warning("Found a second bulk in ep, ignored");
+				pr_warn("Found a second bulk in ep, ignored\n");
 				continue;
 			}
 
@@ -1622,10 +1616,10 @@ static int ezusb_probe(struct usb_interface *interface,
 				goto error;
 			}
 			if (le16_to_cpu(ep->wMaxPacketSize) != 64)
-				pr_warning("bulk in: wMaxPacketSize!= 64");
+				pr_warn("bulk in: wMaxPacketSize!= 64\n");
 			if (ep->bEndpointAddress != (2 | USB_DIR_IN))
-				pr_warning("bulk in: bEndpointAddress: %d",
-				     ep->bEndpointAddress);
+				pr_warn("bulk in: bEndpointAddress: %d\n",
+					ep->bEndpointAddress);
 			upriv->read_pipe = usb_rcvbulkpipe(udev,
 							 ep->
 							 bEndpointAddress);
@@ -1637,21 +1631,18 @@ static int ezusb_probe(struct usb_interface *interface,
 			}
 		}
 
-		if (((ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
-		     == USB_DIR_OUT) &&
-		    ((ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-		     == USB_ENDPOINT_XFER_BULK)) {
+		if (usb_endpoint_is_bulk_out(ep)) {
 			/* we found a bulk out endpoint */
 			if (upriv->bap_buf != NULL) {
-				pr_warning("Found a second bulk out ep, ignored");
+				pr_warn("Found a second bulk out ep, ignored\n");
 				continue;
 			}
 
 			if (le16_to_cpu(ep->wMaxPacketSize) != 64)
-				pr_warning("bulk out: wMaxPacketSize != 64");
+				pr_warn("bulk out: wMaxPacketSize != 64\n");
 			if (ep->bEndpointAddress != 2)
-				pr_warning("bulk out: bEndpointAddress: %d",
-				     ep->bEndpointAddress);
+				pr_warn("bulk out: bEndpointAddress: %d\n",
+					ep->bEndpointAddress);
 			upriv->write_pipe = usb_sndbulkpipe(udev,
 							  ep->
 							  bEndpointAddress);

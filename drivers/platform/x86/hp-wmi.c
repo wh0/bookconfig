@@ -144,7 +144,7 @@ static const struct key_entry hp_wmi_keymap[] = {
 	{ KE_KEY, 0x20e8, { KEY_MEDIA } },
 	{ KE_KEY, 0x2142, { KEY_MEDIA } },
 	{ KE_KEY, 0x213b, { KEY_INFO } },
-	{ KE_KEY, 0x2169, { KEY_DIRECTION } },
+	{ KE_KEY, 0x2169, { KEY_ROTATE_DISPLAY } },
 	{ KE_KEY, 0x216a, { KEY_SETUP } },
 	{ KE_KEY, 0x231b, { KEY_HELP } },
 	{ KE_END, 0 }
@@ -295,7 +295,7 @@ static int hp_wmi_tablet_state(void)
 	return (state & 0x4) ? 1 : 0;
 }
 
-static int hp_wmi_bios_2009_later(void)
+static int __init hp_wmi_bios_2009_later(void)
 {
 	int state = 0;
 	int ret = hp_wmi_perform_query(HPWMI_FEATURE_QUERY, 0, &state,
@@ -704,7 +704,7 @@ static void cleanup_sysfs(struct platform_device *device)
 	device_remove_file(&device->dev, &dev_attr_postcode);
 }
 
-static int hp_wmi_rfkill_setup(struct platform_device *device)
+static int __init hp_wmi_rfkill_setup(struct platform_device *device)
 {
 	int err;
 	int wireless = 0;
@@ -806,7 +806,7 @@ register_wifi_error:
 	return err;
 }
 
-static int hp_wmi_rfkill2_setup(struct platform_device *device)
+static int __init hp_wmi_rfkill2_setup(struct platform_device *device)
 {
 	int err, i;
 	struct bios_rfkill2_state state;
@@ -1006,7 +1006,6 @@ static const struct dev_pm_ops hp_wmi_pm_ops = {
 static struct platform_driver hp_wmi_driver = {
 	.driver = {
 		.name = "hp-wmi",
-		.owner = THIS_MODULE,
 		.pm = &hp_wmi_pm_ops,
 	},
 	.remove = __exit_p(hp_wmi_bios_remove),

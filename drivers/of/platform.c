@@ -138,7 +138,7 @@ struct platform_device *of_device_alloc(struct device_node *np,
 	}
 
 	dev->dev.of_node = of_node_get(np);
-	dev->dev.parent = parent;
+	dev->dev.parent = parent ? : &platform_bus;
 
 	if (bus_id)
 		dev_set_name(&dev->dev, "%s", bus_id);
@@ -149,58 +149,9 @@ struct platform_device *of_device_alloc(struct device_node *np,
 }
 EXPORT_SYMBOL(of_device_alloc);
 
-/**
- * of_dma_configure - Setup DMA configuration
- * @dev:	Device to apply DMA configuration
- *
- * Try to get devices's DMA configuration from DT and update it
- * accordingly.
- *
- * In case if platform code need to use own special DMA configuration,it
- * can use Platform bus notifier and handle BUS_NOTIFY_ADD_DEVICE event
- * to fix up DMA configuration.
- */
-static void of_dma_configure(struct platform_device *pdev)
+static void of_dma_deconfigure(struct device *dev)
 {
-	u64 dma_addr, paddr, size;
-	int ret;
-	struct device *dev = &pdev->dev;
-
-	/*
-	 * Set default dma-mask to 32 bit. Drivers are expected to setup
-	 * the correct supported dma_mask.
-	 */
-	dev->coherent_dma_mask = DMA_BIT_MASK(32);
-
-	/*
-	 * Set it to coherent_dma_mask by default if the architecture
-	 * code has not set it.
-	 */
-	if (!dev->dma_mask)
-		dev->dma_mask = &dev->coherent_dma_mask;
-
-	/*
-	 * if dma-coherent property exist, call arch hook to setup
-	 * dma coherent operations.
-	 */
-	if (of_dma_is_coherent(dev->of_node)) {
-		set_arch_dma_coherent_ops(dev);
-		dev_dbg(dev, "device is dma coherent\n");
-	}
-
-	/*
-	 * if dma-ranges property doesn't exist - just return else
-	 * setup the dma offset
-	 */
-	ret = of_dma_get_range(dev->of_node, &dma_addr, &paddr, &size);
-	if (ret < 0) {
-		dev_dbg(dev, "no dma range information to setup\n");
-		return;
-	}
-
-	/* DMA ranges found. Calculate and set dma_pfn_offset */
-	dev->dma_pfn_offset = PFN_DOWN(paddr - dma_addr);
-	dev_dbg(dev, "dma_pfn_offset(%#08lx)\n", dev->dma_pfn_offset);
+	arch_teardown_dma_ops(dev);
 }
 
 /**
@@ -229,16 +180,12 @@ static struct platform_device *of_platform_device_create_pdata(
 	if (!dev)
 		goto err_clear_flag;
 
-	of_dma_configure(dev);
 	dev->dev.bus = &platform_bus_type;
 	dev->dev.platform_data = platform_data;
-
-	/* We do not fill the DMA ops for platform devices by default.
-	 * This is currently the responsibility of the platform code
-	 * to do such, possibly using a device notifier
-	 */
+	of_dma_configure(&dev->dev, dev->dev.of_node);
 
 	if (of_device_add(dev) != 0) {
+		of_dma_deconfigure(&dev->dev);
 		platform_device_put(dev);
 		goto err_clear_flag;
 	}
@@ -291,14 +238,14 @@ static struct amba_device *of_amba_device_create(struct device_node *node,
 	}
 
 	/* setup generic device info */
-	dev->dev.coherent_dma_mask = ~0;
 	dev->dev.of_node = of_node_get(node);
-	dev->dev.parent = parent;
+	dev->dev.parent = parent ? : &platform_bus;
 	dev->dev.platform_data = platform_data;
 	if (bus_id)
 		dev_set_name(&dev->dev, "%s", bus_id);
 	else
 		of_device_make_bus_id(&dev->dev);
+	of_dma_configure(&dev->dev, dev->dev.of_node);
 
 	/* Allow the HW Peripheral ID to be overridden */
 	prop = of_get_property(node, "arm,primecell-periphid", NULL);
@@ -422,6 +369,7 @@ static int of_platform_bus_create(struct device_node *bus,
 			break;
 		}
 	}
+	of_node_set_flag(bus, OF_POPULATED_BUS);
 	return rc;
 }
 
@@ -500,6 +448,7 @@ int of_platform_populate(struct device_node *root,
 		if (rc)
 			break;
 	}
+	of_node_set_flag(root, OF_POPULATED_BUS);
 
 	of_node_put(root);
 	return rc;
@@ -508,19 +457,13 @@ EXPORT_SYMBOL_GPL(of_platform_populate);
 
 static int of_platform_device_destroy(struct device *dev, void *data)
 {
-	bool *children_left = data;
-
 	/* Do not touch devices not populated from the device tree */
-	if (!dev->of_node || !of_node_check_flag(dev->of_node, OF_POPULATED)) {
-		*children_left = true;
+	if (!dev->of_node || !of_node_check_flag(dev->of_node, OF_POPULATED))
 		return 0;
-	}
 
-	/* Recurse, but don't touch this device if it has any children left */
-	if (of_platform_depopulate(dev) != 0) {
-		*children_left = true;
-		return 0;
-	}
+	/* Recurse for any nodes that were treated as busses */
+	if (of_node_check_flag(dev->of_node, OF_POPULATED_BUS))
+		device_for_each_child(dev, NULL, of_platform_device_destroy);
 
 	if (dev->bus == &platform_bus_type)
 		platform_device_unregister(to_platform_device(dev));
@@ -528,19 +471,16 @@ static int of_platform_device_destroy(struct device *dev, void *data)
 	else if (dev->bus == &amba_bustype)
 		amba_device_unregister(to_amba_device(dev));
 #endif
-	else {
-		*children_left = true;
-		return 0;
-	}
 
+	of_dma_deconfigure(dev);
 	of_node_clear_flag(dev->of_node, OF_POPULATED);
-
+	of_node_clear_flag(dev->of_node, OF_POPULATED_BUS);
 	return 0;
 }
 
 /**
  * of_platform_depopulate() - Remove devices populated from device tree
- * @parent: device which childred will be removed
+ * @parent: device which children will be removed
  *
  * Complementary to of_platform_populate(), this function removes children
  * of the given device (and, recurrently, their children) that have been
@@ -550,15 +490,77 @@ static int of_platform_device_destroy(struct device *dev, void *data)
  * Returns 0 when all children devices have been removed or
  * -EBUSY when some children remained.
  */
-int of_platform_depopulate(struct device *parent)
+void of_platform_depopulate(struct device *parent)
 {
-	bool children_left = false;
-
-	device_for_each_child(parent, &children_left,
-			      of_platform_device_destroy);
-
-	return children_left ? -EBUSY : 0;
+	if (parent->of_node && of_node_check_flag(parent->of_node, OF_POPULATED_BUS)) {
+		device_for_each_child(parent, NULL, of_platform_device_destroy);
+		of_node_clear_flag(parent->of_node, OF_POPULATED_BUS);
+	}
 }
 EXPORT_SYMBOL_GPL(of_platform_depopulate);
+
+#ifdef CONFIG_OF_DYNAMIC
+static int of_platform_notify(struct notifier_block *nb,
+				unsigned long action, void *arg)
+{
+	struct of_reconfig_data *rd = arg;
+	struct platform_device *pdev_parent, *pdev;
+	bool children_left;
+
+	switch (of_reconfig_get_state_change(action, rd)) {
+	case OF_RECONFIG_CHANGE_ADD:
+		/* verify that the parent is a bus */
+		if (!of_node_check_flag(rd->dn->parent, OF_POPULATED_BUS))
+			return NOTIFY_OK;	/* not for us */
+
+		/* already populated? (driver using of_populate manually) */
+		if (of_node_check_flag(rd->dn, OF_POPULATED))
+			return NOTIFY_OK;
+
+		/* pdev_parent may be NULL when no bus platform device */
+		pdev_parent = of_find_device_by_node(rd->dn->parent);
+		pdev = of_platform_device_create(rd->dn, NULL,
+				pdev_parent ? &pdev_parent->dev : NULL);
+		of_dev_put(pdev_parent);
+
+		if (pdev == NULL) {
+			pr_err("%s: failed to create for '%s'\n",
+					__func__, rd->dn->full_name);
+			/* of_platform_device_create tosses the error code */
+			return notifier_from_errno(-EINVAL);
+		}
+		break;
+
+	case OF_RECONFIG_CHANGE_REMOVE:
+
+		/* already depopulated? */
+		if (!of_node_check_flag(rd->dn, OF_POPULATED))
+			return NOTIFY_OK;
+
+		/* find our device by node */
+		pdev = of_find_device_by_node(rd->dn);
+		if (pdev == NULL)
+			return NOTIFY_OK;	/* no? not meant for us */
+
+		/* unregister takes one ref away */
+		of_platform_device_destroy(&pdev->dev, &children_left);
+
+		/* and put the reference of the find */
+		of_dev_put(pdev);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block platform_of_notifier = {
+	.notifier_call = of_platform_notify,
+};
+
+void of_platform_register_reconfig_notifier(void)
+{
+	WARN_ON(of_reconfig_notifier_register(&platform_of_notifier));
+}
+#endif /* CONFIG_OF_DYNAMIC */
 
 #endif /* CONFIG_OF_ADDRESS */

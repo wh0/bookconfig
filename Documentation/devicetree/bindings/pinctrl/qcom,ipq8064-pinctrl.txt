@@ -18,7 +18,7 @@ Please refer to pinctrl-bindings.txt in this directory for details of the
 common pinctrl bindings used by client devices, including the meaning of the
 phrase "pin configuration node".
 
-Qualcomm's pin configuration nodes act as a container for an abitrary number of
+Qualcomm's pin configuration nodes act as a container for an arbitrary number of
 subnodes. Each of these subnodes represents some desired configuration for a
 pin, a group, or a list of pins or groups. This configuration can include the
 mux function to select on those pin(s)/group(s), and various pin configuration
@@ -51,7 +51,7 @@ Valid values for qcom,pins are:
 
 
 Valid values for function are:
-  mdio, mi2s, pdm, ssbi, spmi, audio_pcm, gsbi1, gsbi2, gsbi4, gsbi5,
+  mdio, mi2s, pdm, ssbi, spmi, audio_pcm, gpio, gsbi1, gsbi2, gsbi4, gsbi5,
   gsbi5_spi_cs1, gsbi5_spi_cs2, gsbi5_spi_cs3, gsbi6, gsbi7, nss_spi, sdc1,
   spdif, nand, tsif1, tsif2, usb_fs_n, usb_fs, usb2_hsic, rgmii2, sata,
   pcie1_rst, pcie1_prsnt, pcie1_pwren_n, pcie1_pwren, pcie1_pwrflt,

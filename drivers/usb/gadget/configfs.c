@@ -271,7 +271,7 @@ static ssize_t gadget_dev_desc_UDC_store(struct gadget_info *gi,
 			ret = -EBUSY;
 			goto err;
 		}
-		ret = udc_attach_driver(name, &gi->composite.gadget_driver);
+		ret = usb_udc_attach_driver(name, &gi->composite.gadget_driver);
 		if (ret)
 			goto err;
 		gi->udc_name = name;
@@ -1021,11 +1021,9 @@ static ssize_t ext_prop_data_store(struct usb_os_desc_ext_prop *ext_prop,
 
 	if (page[len - 1] == '\n' || page[len - 1] == '\0')
 		--len;
-	new_data = kzalloc(len, GFP_KERNEL);
+	new_data = kmemdup(page, len, GFP_KERNEL);
 	if (!new_data)
 		return -ENOMEM;
-
-	memcpy(new_data, page, len);
 
 	if (desc->opts_mutex)
 		mutex_lock(desc->opts_mutex);
@@ -1163,7 +1161,6 @@ static ssize_t interf_grp_compatible_id_store(struct usb_os_desc *desc,
 	if (desc->opts_mutex)
 		mutex_lock(desc->opts_mutex);
 	memcpy(desc->ext_compat_id, page, l);
-	desc->ext_compat_id[l] = '\0';
 
 	if (desc->opts_mutex)
 		mutex_unlock(desc->opts_mutex);
@@ -1194,7 +1191,6 @@ static ssize_t interf_grp_sub_compatible_id_store(struct usb_os_desc *desc,
 	if (desc->opts_mutex)
 		mutex_lock(desc->opts_mutex);
 	memcpy(desc->ext_compat_id + 8, page, l);
-	desc->ext_compat_id[l + 8] = '\0';
 
 	if (desc->opts_mutex)
 		mutex_unlock(desc->opts_mutex);
@@ -1299,6 +1295,7 @@ static void purge_configs_funcs(struct gadget_info *gi)
 			}
 		}
 		c->next_interface_id = 0;
+		memset(c->interface, 0, sizeof(c->interface));
 		c->superspeed = 0;
 		c->highspeed = 0;
 		c->fullspeed = 0;
@@ -1452,7 +1449,11 @@ static const struct usb_gadget_driver configfs_driver_template = {
 	.unbind         = configfs_composite_unbind,
 
 	.setup          = composite_setup,
+	.reset          = composite_disconnect,
 	.disconnect     = composite_disconnect,
+
+	.suspend	= composite_suspend,
+	.resume		= composite_resume,
 
 	.max_speed	= USB_SPEED_SUPER,
 	.driver = {

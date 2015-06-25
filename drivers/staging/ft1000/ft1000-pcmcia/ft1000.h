@@ -1,21 +1,21 @@
 /*---------------------------------------------------------------------------
-   FT1000 driver for Flarion Flash OFDM NIC Device
+  FT1000 driver for Flarion Flash OFDM NIC Device
 
-   Copyright (C) 2002 Flarion Technologies, All rights reserved.
+  Copyright (C) 2002 Flarion Technologies, All rights reserved.
 
-   This program is free software; you can redistribute it and/or modify it
-   under the terms of the GNU General Public License as published by the Free
-   Software Foundation; either version 2 of the License, or (at your option) any
-   later version. This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-   more details. You should have received a copy of the GNU General Public
-   License along with this program; if not, write to the
-   Free Software Foundation, Inc., 59 Temple Place -
-   Suite 330, Boston, MA 02111-1307, USA.
----------------------------------------------------------------------------
-   Description:    Common structures and defines
----------------------------------------------------------------------------*/
+  This program is free software; you can redistribute it and/or modify it
+  under the terms of the GNU General Public License as published by the Free
+  Software Foundation; either version 2 of the License, or (at your option) any
+  later version. This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details. You should have received a copy of the GNU General Public
+  License along with this program; if not, write to the
+  Free Software Foundation, Inc., 59 Temple Place -
+  Suite 330, Boston, MA 02111-1307, USA.
+  ---------------------------------------------------------------------------
+  Description:    Common structures and defines
+  ---------------------------------------------------------------------------*/
 #ifndef _FT1000H_
 #define _FT1000H_
 
@@ -47,8 +47,6 @@ extern struct net_device *init_ft1000_card(struct pcmcia_device *link,
 extern void stop_ft1000_card(struct net_device *dev);
 extern int card_download(struct net_device *dev, const u8 *pFileStart,
 			 size_t FileLength);
-extern void ft1000InitProc(struct net_device *dev);
-extern void ft1000CleanupProc(struct net_device *dev);
 
 extern u16 ft1000_read_dpram(struct net_device *dev, int offset);
 extern void card_bootload(struct net_device *dev);

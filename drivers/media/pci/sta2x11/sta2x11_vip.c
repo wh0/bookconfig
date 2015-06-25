@@ -127,7 +127,7 @@ static inline struct vip_buffer *to_vip_buffer(struct vb2_buffer *vb2)
  */
 struct sta2x11_vip {
 	struct v4l2_device v4l2_dev;
-	struct video_device *video_dev;
+	struct video_device video_dev;
 	struct pci_dev *pdev;
 	struct i2c_adapter *adapter;
 	unsigned int register_save_area[IRQ_COUNT + SAVE_COUNT + AUX_COUNT];
@@ -152,7 +152,7 @@ struct sta2x11_vip {
 	int tcount, bcount;
 	int overflow;
 
-	void *iomem;	/* I/O Memory */
+	void __iomem *iomem;	/* I/O Memory */
 	struct vip_config *config;
 };
 
@@ -640,7 +640,6 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = f->fmt.pix.width * 2;
 	f->fmt.pix.sizeimage = f->fmt.pix.width * 2 * f->fmt.pix.height;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
-	f->fmt.pix.priv = 0;
 	return 0;
 }
 
@@ -764,7 +763,7 @@ static const struct v4l2_ioctl_ops vip_ioctl_ops = {
 
 static struct video_device video_dev_template = {
 	.name = KBUILD_MODNAME,
-	.release = video_device_release,
+	.release = video_device_release_empty,
 	.fops = &vip_fops,
 	.ioctl_ops = &vip_ioctl_ops,
 	.tvnorms = V4L2_STD_ALL,
@@ -1083,20 +1082,13 @@ static int sta2x11_vip_init_one(struct pci_dev *pdev,
 		goto release_buf;
 	}
 
-	/* Alloc, initialize and register video device */
-	vip->video_dev = video_device_alloc();
-	if (!vip->video_dev) {
-		ret = -ENOMEM;
-		goto release_irq;
-	}
+	/* Initialize and register video device */
+	vip->video_dev = video_dev_template;
+	vip->video_dev.v4l2_dev = &vip->v4l2_dev;
+	vip->video_dev.queue = &vip->vb_vidq;
+	video_set_drvdata(&vip->video_dev, vip);
 
-	vip->video_dev = &video_dev_template;
-	vip->video_dev->v4l2_dev = &vip->v4l2_dev;
-	vip->video_dev->queue = &vip->vb_vidq;
-	set_bit(V4L2_FL_USE_FH_PRIO, &vip->video_dev->flags);
-	video_set_drvdata(vip->video_dev, vip);
-
-	ret = video_register_device(vip->video_dev, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(&vip->video_dev, VFL_TYPE_GRABBER, -1);
 	if (ret)
 		goto vrelease;
 
@@ -1126,13 +1118,9 @@ static int sta2x11_vip_init_one(struct pci_dev *pdev,
 	return 0;
 
 vunreg:
-	video_set_drvdata(vip->video_dev, NULL);
+	video_set_drvdata(&vip->video_dev, NULL);
 vrelease:
-	if (video_is_registered(vip->video_dev))
-		video_unregister_device(vip->video_dev);
-	else
-		video_device_release(vip->video_dev);
-release_irq:
+	video_unregister_device(&vip->video_dev);
 	free_irq(pdev->irq, vip);
 release_buf:
 	sta2x11_vip_release_buffer(vip);
@@ -1177,9 +1165,8 @@ static void sta2x11_vip_remove_one(struct pci_dev *pdev)
 
 	sta2x11_vip_clear_register(vip);
 
-	video_set_drvdata(vip->video_dev, NULL);
-	video_unregister_device(vip->video_dev);
-	/*do not call video_device_release() here, is already done */
+	video_set_drvdata(&vip->video_dev, NULL);
+	video_unregister_device(&vip->video_dev);
 	free_irq(pdev->irq, vip);
 	pci_disable_msi(pdev);
 	vb2_queue_release(&vip->vb_vidq);

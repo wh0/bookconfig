@@ -24,11 +24,6 @@
 #include <linux/sched.h>
 #include <asm/cputype.h>
 
-extern void __cpu_flush_user_tlb_range(unsigned long, unsigned long, struct vm_area_struct *);
-extern void __cpu_flush_kern_tlb_range(unsigned long, unsigned long);
-
-extern struct cpu_tlb_fns cpu_tlb;
-
 /*
  *	TLB Management
  *	==============
@@ -98,8 +93,8 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 	dsb(ish);
 }
 
-static inline void flush_tlb_range(struct vm_area_struct *vma,
-					unsigned long start, unsigned long end)
+static inline void __flush_tlb_range(struct vm_area_struct *vma,
+				     unsigned long start, unsigned long end)
 {
 	unsigned long asid = (unsigned long)ASID(vma->vm_mm) << 48;
 	unsigned long addr;
@@ -112,7 +107,7 @@ static inline void flush_tlb_range(struct vm_area_struct *vma,
 	dsb(ish);
 }
 
-static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+static inline void __flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
 	unsigned long addr;
 	start >>= 12;
@@ -125,6 +120,42 @@ static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end
 	isb();
 }
 
+/*
+ * This is meant to avoid soft lock-ups on large TLB flushing ranges and not
+ * necessarily a performance improvement.
+ */
+#define MAX_TLB_RANGE	(1024UL << PAGE_SHIFT)
+
+static inline void flush_tlb_range(struct vm_area_struct *vma,
+				   unsigned long start, unsigned long end)
+{
+	if ((end - start) <= MAX_TLB_RANGE)
+		__flush_tlb_range(vma, start, end);
+	else
+		flush_tlb_mm(vma->vm_mm);
+}
+
+static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+{
+	if ((end - start) <= MAX_TLB_RANGE)
+		__flush_tlb_kernel_range(start, end);
+	else
+		flush_tlb_all();
+}
+
+/*
+ * Used to invalidate the TLB (walk caches) corresponding to intermediate page
+ * table levels (pgd/pud/pmd).
+ */
+static inline void __flush_tlb_pgtable(struct mm_struct *mm,
+				       unsigned long uaddr)
+{
+	unsigned long addr = uaddr >> 12 | ((unsigned long)ASID(mm) << 48);
+
+	dsb(ishst);
+	asm("tlbi	vae1is, %0" : : "r" (addr));
+	dsb(ish);
+}
 /*
  * On AArch64, the cache coherency is handled via the set_pte_at() function.
  */

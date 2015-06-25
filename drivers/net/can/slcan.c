@@ -56,9 +56,6 @@
 #include <linux/can.h>
 #include <linux/can/skb.h>
 
-static __initconst const char banner[] =
-	KERN_INFO "slcan: serial line CAN interface driver\n";
-
 MODULE_ALIAS_LDISC(N_SLCAN);
 MODULE_DESCRIPTION("serial line CAN interface");
 MODULE_LICENSE("GPL");
@@ -529,7 +526,7 @@ static struct slcan *slc_alloc(dev_t line)
 		return NULL;
 
 	sprintf(name, "slcan%d", i);
-	dev = alloc_netdev(sizeof(*sl), name, slc_setup);
+	dev = alloc_netdev(sizeof(*sl), name, NET_NAME_UNKNOWN, slc_setup);
 	if (!dev)
 		return NULL;
 
@@ -702,8 +699,8 @@ static int __init slcan_init(void)
 	if (maxdev < 4)
 		maxdev = 4; /* Sanity */
 
-	printk(banner);
-	printk(KERN_INFO "slcan: %d dynamic interface channels.\n", maxdev);
+	pr_info("slcan: serial line CAN interface driver\n");
+	pr_info("slcan: %d dynamic interface channels.\n", maxdev);
 
 	slcan_devs = kzalloc(sizeof(struct net_device *)*maxdev, GFP_KERNEL);
 	if (!slcan_devs)

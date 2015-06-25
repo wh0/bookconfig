@@ -18,13 +18,6 @@
 #include <osdep_service.h>
 #include <drv_types.h>
 
-enum RTL871X_HCI_TYPE {
-	RTW_PCIE	= BIT(0),
-	RTW_USB		= BIT(1),
-	RTW_SDIO	= BIT(2),
-	RTW_GSPI	= BIT(3),
-};
-
 enum _CHIP_TYPE {
 	NULL_CHIP_TYPE,
 	RTL8712_8188S_8191S_8192S,
@@ -101,10 +94,9 @@ enum hardware_type {
 
 void rtw_hal_def_value_init23a(struct rtw_adapter *padapter);
 int pm_netdev_open23a(struct net_device *pnetdev, u8 bnormal);
-int rtw_resume_process23a(struct rtw_adapter *padapter);
 
-int rtw_hal_init23a(struct rtw_adapter *padapter);
-int rtw_hal_deinit23a(struct rtw_adapter *padapter);
+int rtl8723au_hal_init(struct rtw_adapter *padapter);
+int rtl8723au_hal_deinit(struct rtw_adapter *padapter);
 void rtw_hal_stop(struct rtw_adapter *padapter);
 
 void rtw_hal_update_ra_mask23a(struct sta_info *psta, u8 rssi_level);

@@ -270,7 +270,6 @@ struct hal_data_8723a {
 	u16	BasicRateSet;
 
 	/* rf_ctrl */
-	u8	rf_chip;
 	u8	rf_type;
 	u8	NumTotalRFPath;
 
@@ -280,10 +279,6 @@ struct hal_data_8723a {
 	/*  EEPROM setting. */
 	/*  */
 	u8	EEPROMVersion;
-	u16	EEPROMVID;
-	u16	EEPROMPID;
-	u16	EEPROMSVID;
-	u16	EEPROMSDID;
 	u8	EEPROMCustomerID;
 	u8	EEPROMSubCustomerID;
 	u8	EEPROMRegulatory;
@@ -315,7 +310,6 @@ struct hal_data_8723a {
 	u8	framesync;
 	u32	framesyncC34;
 	u8	framesyncMonitor;
-	u8	DefaultInitialGain[4];
 	u8	pwrGroupCnt;
 	u32	MCSTxPowerLevelOriginalOffset[7][16];
 	u32	CCKTxPowerLevelOriginalOffset;
@@ -353,10 +347,8 @@ struct hal_data_8723a {
 	/* for host message to fw */
 	u8	LastHMEBoxNum;
 
-	u8	fw_ractrl;
 	u8	RegTxPause;
 	/*  Beacon function related global variable. */
-	u32	RegBcnCtrlVal;
 	u8	RegFwHwTxQCtrl;
 	u8	RegReg542;
 
@@ -378,18 +370,8 @@ struct hal_data_8723a {
 	/*  2010/08/09 MH Add CU power down mode. */
 	u8	pwrdown;
 
-	/*  Add for dual MAC  0--Mac0 1--Mac1 */
-	u32	interfaceIndex;
-
 	u8	OutEpQueueSel;
 	u8	OutEpNumber;
-
-	/*  2010/12/10 MH Add for USB aggreation mode dynamic shceme. */
-	bool		UsbRxHighSpeedMode;
-
-	/*  2010/11/22 MH Add for slim combo debug mode selective. */
-	/*  This is used for fix the drawback of CU TSMC-A/UMC-A cut. HW auto suspend ability. Close BT clock. */
-	bool		SlimComboDbg;
 
 	/*  */
 	/*  Add For EEPROM Efuse switch and  Efuse Shadow map Setting */
@@ -413,8 +395,6 @@ struct hal_data_8723a {
 	/* 8723-----------------------------------------
 	 *  2011/02/23 MH Add for 8723 mylti function definition. The define should be moved to an */
 	/*  independent file in the future. */
-
-	bool				bMACFuncEnable;
 
 	/*  Interrupt related register information. */
 	u32	IntArray[2];
@@ -526,8 +506,6 @@ void Hal_EfuseParseAntennaDiversity(struct rtw_adapter *padapter, u8 *hwinfo, bo
 void Hal_EfuseParseRateIndicationOption(struct rtw_adapter *padapter, u8 *hwinfo, bool AutoLoadFail);
 void Hal_EfuseParseXtal_8723A(struct rtw_adapter *pAdapter, u8 *hwinfo, u8 AutoLoadFail);
 void Hal_EfuseParseThermalMeter_8723A(struct rtw_adapter *padapter, u8 *hwinfo, bool AutoLoadFail);
-
-void Hal_InitChannelPlan23a(struct rtw_adapter *padapter);
 
 /*  register */
 void SetBcnCtrlReg23a(struct rtw_adapter *padapter, u8 SetBits, u8 ClearBits);

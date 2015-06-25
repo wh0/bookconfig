@@ -27,8 +27,14 @@ static struct {
 	{ .name = "SGI GR2/GR3", .id = 0x7f },
 };
 
+static void gio_bus_release(struct device *dev)
+{
+	kfree(dev);
+}
+
 static struct device gio_bus = {
 	.init_name = "gio",
+	.release = &gio_bus_release,
 };
 
 /**
@@ -144,28 +150,6 @@ static int gio_device_remove(struct device *dev)
 	if (dev->driver && drv->remove)
 		drv->remove(gio_dev);
 	return 0;
-}
-
-static int gio_device_suspend(struct device *dev, pm_message_t state)
-{
-	struct gio_device *gio_dev = to_gio_device(dev);
-	struct gio_driver *drv = to_gio_driver(dev->driver);
-	int error = 0;
-
-	if (dev->driver && drv->suspend)
-		error = drv->suspend(gio_dev, state);
-	return error;
-}
-
-static int gio_device_resume(struct device *dev)
-{
-	struct gio_device *gio_dev = to_gio_device(dev);
-	struct gio_driver *drv = to_gio_driver(dev->driver);
-	int error = 0;
-
-	if (dev->driver && drv->resume)
-		error = drv->resume(gio_dev);
-	return error;
 }
 
 static void gio_device_shutdown(struct device *dev)
@@ -394,8 +378,6 @@ static struct bus_type gio_bus_type = {
 	.match	   = gio_bus_match,
 	.probe	   = gio_device_probe,
 	.remove	   = gio_device_remove,
-	.suspend   = gio_device_suspend,
-	.resume	   = gio_device_resume,
 	.shutdown  = gio_device_shutdown,
 	.uevent	   = gio_device_uevent,
 };
@@ -413,8 +395,10 @@ int __init ip22_gio_init(void)
 	int ret;
 
 	ret = device_register(&gio_bus);
-	if (ret)
+	if (ret) {
+		put_device(&gio_bus);
 		return ret;
+	}
 
 	ret = bus_register(&gio_bus_type);
 	if (!ret) {

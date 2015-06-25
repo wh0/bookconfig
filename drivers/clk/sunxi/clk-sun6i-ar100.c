@@ -45,8 +45,10 @@ static unsigned long ar100_recalc_rate(struct clk_hw *hw,
 }
 
 static long ar100_determine_rate(struct clk_hw *hw, unsigned long rate,
+				 unsigned long min_rate,
+				 unsigned long max_rate,
 				 unsigned long *best_parent_rate,
-				 struct clk **best_parent_clk)
+				 struct clk_hw **best_parent_clk)
 {
 	int nparents = __clk_get_num_parents(hw->clk);
 	long best_rate = -EINVAL;
@@ -100,7 +102,7 @@ static long ar100_determine_rate(struct clk_hw *hw, unsigned long rate,
 
 		tmp_rate = (parent_rate >> shift) / div;
 		if (!*best_parent_clk || tmp_rate > best_rate) {
-			*best_parent_clk = parent;
+			*best_parent_clk = __clk_get_hw(parent);
 			*best_parent_rate = parent_rate;
 			best_rate = tmp_rate;
 		}
@@ -160,7 +162,7 @@ static int ar100_set_rate(struct clk_hw *hw, unsigned long rate,
 	return 0;
 }
 
-struct clk_ops ar100_ops = {
+static struct clk_ops ar100_ops = {
 	.recalc_rate = ar100_recalc_rate,
 	.determine_rate = ar100_determine_rate,
 	.set_parent = ar100_set_parent,
@@ -213,7 +215,7 @@ static int sun6i_a31_ar100_clk_probe(struct platform_device *pdev)
 	return of_clk_add_provider(np, of_clk_src_simple_get, clk);
 }
 
-const struct of_device_id sun6i_a31_ar100_clk_dt_ids[] = {
+static const struct of_device_id sun6i_a31_ar100_clk_dt_ids[] = {
 	{ .compatible = "allwinner,sun6i-a31-ar100-clk" },
 	{ /* sentinel */ }
 };
@@ -221,7 +223,6 @@ const struct of_device_id sun6i_a31_ar100_clk_dt_ids[] = {
 static struct platform_driver sun6i_a31_ar100_clk_driver = {
 	.driver = {
 		.name = "sun6i-a31-ar100-clk",
-		.owner = THIS_MODULE,
 		.of_match_table = sun6i_a31_ar100_clk_dt_ids,
 	},
 	.probe = sun6i_a31_ar100_clk_probe,

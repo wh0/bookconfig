@@ -23,7 +23,7 @@
 #include <linux/mutex.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
-#include <linux/resume-trace.h>
+#include <linux/pm-trace.h>
 #include <linux/interrupt.h>
 #include <linux/sched.h>
 #include <linux/async.h>
@@ -465,6 +465,7 @@ static void dpm_watchdog_clear(struct dpm_watchdog *wd)
  * device_resume_noirq - Execute an "early resume" callback for given device.
  * @dev: Device to handle.
  * @state: PM transition of the system being carried out.
+ * @async: If true, the device is being resumed asynchronously.
  *
  * The driver of @dev will not receive interrupts while this function is being
  * executed.
@@ -539,7 +540,7 @@ static void async_resume_noirq(void *data, async_cookie_t cookie)
  * Call the "noirq" resume handlers for all devices in dpm_noirq_list and
  * enable device drivers to receive interrupts.
  */
-static void dpm_resume_noirq(pm_message_t state)
+void dpm_resume_noirq(pm_message_t state)
 {
 	struct device *dev;
 	ktime_t starttime = ktime_get();
@@ -594,6 +595,7 @@ static void dpm_resume_noirq(pm_message_t state)
  * device_resume_early - Execute an "early resume" callback for given device.
  * @dev: Device to handle.
  * @state: PM transition of the system being carried out.
+ * @async: If true, the device is being resumed asynchronously.
  *
  * Runtime PM is disabled for @dev while this function is being executed.
  */
@@ -660,7 +662,7 @@ static void async_resume_early(void *data, async_cookie_t cookie)
  * dpm_resume_early - Execute "early resume" callbacks for all devices.
  * @state: PM transition of the system being carried out.
  */
-static void dpm_resume_early(pm_message_t state)
+void dpm_resume_early(pm_message_t state)
 {
 	struct device *dev;
 	ktime_t starttime = ktime_get();
@@ -1004,6 +1006,7 @@ static pm_message_t resume_event(pm_message_t sleep_state)
  * device_suspend_noirq - Execute a "late suspend" callback for given device.
  * @dev: Device to handle.
  * @state: PM transition of the system being carried out.
+ * @async: If true, the device is being suspended asynchronously.
  *
  * The driver of @dev will not receive interrupts while this function is being
  * executed.
@@ -1013,6 +1016,9 @@ static int __device_suspend_noirq(struct device *dev, pm_message_t state, bool a
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
+
+	TRACE_DEVICE(dev);
+	TRACE_SUSPEND(0);
 
 	if (async_error)
 		goto Complete;
@@ -1054,6 +1060,7 @@ static int __device_suspend_noirq(struct device *dev, pm_message_t state, bool a
 
 Complete:
 	complete_all(&dev->power.completion);
+	TRACE_SUSPEND(error);
 	return error;
 }
 
@@ -1075,7 +1082,7 @@ static int device_suspend_noirq(struct device *dev)
 {
 	reinit_completion(&dev->power.completion);
 
-	if (pm_async_enabled && dev->power.async_suspend) {
+	if (is_async(dev)) {
 		get_device(dev);
 		async_schedule(async_suspend_noirq, dev);
 		return 0;
@@ -1090,7 +1097,7 @@ static int device_suspend_noirq(struct device *dev)
  * Prevent device drivers from receiving interrupts and call the "noirq" suspend
  * handlers for all non-sysdev devices.
  */
-static int dpm_suspend_noirq(pm_message_t state)
+int dpm_suspend_noirq(pm_message_t state)
 {
 	ktime_t starttime = ktime_get();
 	int error = 0;
@@ -1144,6 +1151,7 @@ static int dpm_suspend_noirq(pm_message_t state)
  * device_suspend_late - Execute a "late suspend" callback for given device.
  * @dev: Device to handle.
  * @state: PM transition of the system being carried out.
+ * @async: If true, the device is being suspended asynchronously.
  *
  * Runtime PM is disabled for @dev while this function is being executed.
  */
@@ -1152,6 +1160,9 @@ static int __device_suspend_late(struct device *dev, pm_message_t state, bool as
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
+
+	TRACE_DEVICE(dev);
+	TRACE_SUSPEND(0);
 
 	__pm_runtime_disable(dev, false);
 
@@ -1194,6 +1205,7 @@ static int __device_suspend_late(struct device *dev, pm_message_t state, bool as
 		async_error = error;
 
 Complete:
+	TRACE_SUSPEND(error);
 	complete_all(&dev->power.completion);
 	return error;
 }
@@ -1215,7 +1227,7 @@ static int device_suspend_late(struct device *dev)
 {
 	reinit_completion(&dev->power.completion);
 
-	if (pm_async_enabled && dev->power.async_suspend) {
+	if (is_async(dev)) {
 		get_device(dev);
 		async_schedule(async_suspend_late, dev);
 		return 0;
@@ -1228,7 +1240,7 @@ static int device_suspend_late(struct device *dev)
  * dpm_suspend_late - Execute "late suspend" callbacks for all devices.
  * @state: PM transition of the system being carried out.
  */
-static int dpm_suspend_late(pm_message_t state)
+int dpm_suspend_late(pm_message_t state)
 {
 	ktime_t starttime = ktime_get();
 	int error = 0;
@@ -1262,6 +1274,8 @@ static int dpm_suspend_late(pm_message_t state)
 	}
 	mutex_unlock(&dpm_list_mtx);
 	async_synchronize_full();
+	if (!error)
+		error = async_error;
 	if (error) {
 		suspend_stats.failed_suspend_late++;
 		dpm_save_failed_step(SUSPEND_SUSPEND_LATE);
@@ -1298,6 +1312,7 @@ EXPORT_SYMBOL_GPL(dpm_suspend_end);
  * @dev: Device to suspend.
  * @state: PM transition of the system being carried out.
  * @cb: Suspend callback to execute.
+ * @info: string description of caller.
  */
 static int legacy_suspend(struct device *dev, pm_message_t state,
 			  int (*cb)(struct device *dev, pm_message_t state),
@@ -1330,6 +1345,9 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	char *info = NULL;
 	int error = 0;
 	DECLARE_DPM_WATCHDOG_ON_STACK(wd);
+
+	TRACE_DEVICE(dev);
+	TRACE_SUSPEND(0);
 
 	dpm_wait_for_children(dev, async);
 
@@ -1437,6 +1455,7 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	if (error)
 		async_error = error;
 
+	TRACE_SUSPEND(error);
 	return error;
 }
 
@@ -1458,7 +1477,7 @@ static int device_suspend(struct device *dev)
 {
 	reinit_completion(&dev->power.completion);
 
-	if (pm_async_enabled && dev->power.async_suspend) {
+	if (is_async(dev)) {
 		get_device(dev);
 		async_schedule(async_suspend, dev);
 		return 0;

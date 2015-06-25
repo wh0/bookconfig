@@ -30,11 +30,10 @@
  * Revision History:
  */
 
-#include "tmacro.h"
-#include "tether.h"
+#include <linux/etherdevice.h>
+
 #include "desc.h"
 #include "mac.h"
-#include "80211hdr.h"
 #include "usbpipe.h"
 
 /*
@@ -50,7 +49,7 @@
  * Return Value: none
  *
  */
-void MACvWriteMultiAddr(struct vnt_private *priv, u64 mc_filter)
+void vnt_mac_set_filter(struct vnt_private *priv, u64 mc_filter)
 {
 	__le64 le_mc = cpu_to_le64(mc_filter);
 
@@ -69,12 +68,12 @@ void MACvWriteMultiAddr(struct vnt_private *priv, u64 mc_filter)
  *
  *
  */
-void MACbShutdown(struct vnt_private *priv)
+void vnt_mac_shutdown(struct vnt_private *priv)
 {
 	vnt_control_out(priv, MESSAGE_TYPE_MACSHUTDOWN, 0, 0, 0, NULL);
 }
 
-void MACvSetBBType(struct vnt_private *priv, u8 type)
+void vnt_mac_set_bb_type(struct vnt_private *priv, u8 type)
 {
 	u8 data[2];
 
@@ -99,7 +98,7 @@ void MACvSetBBType(struct vnt_private *priv, u8 type)
  * Return Value: none
  *
  */
-void MACvDisableKeyEntry(struct vnt_private *priv, u8 entry_idx)
+void vnt_mac_disable_keyentry(struct vnt_private *priv, u8 entry_idx)
 {
 	vnt_control_out(priv, MESSAGE_TYPE_CLRKEYENTRY, 0, 0,
 		sizeof(entry_idx), &entry_idx);
@@ -119,21 +118,17 @@ void MACvDisableKeyEntry(struct vnt_private *priv, u8 entry_idx)
  * Return Value: none
  *
  */
-void MACvSetKeyEntry(struct vnt_private *priv, u16 key_ctl, u32 entry_idx,
+void vnt_mac_set_keyentry(struct vnt_private *priv, u16 key_ctl, u32 entry_idx,
 	u32 key_idx, u8 *addr, u8 *key)
 {
 	struct vnt_mac_set_key set_key;
 	u16 offset;
 
-	if (priv->byLocalID <= MAC_REVISION_A1)
-		if (priv->vnt_mgmt.byCSSPK == KEY_CTL_CCMP)
-			return;
-
 	offset = MISCFIFO_KEYETRY0;
 	offset += (entry_idx * MISCFIFO_KEYENTRYSIZE);
 
 	set_key.u.write.key_ctl = cpu_to_le16(key_ctl);
-	memcpy(set_key.u.write.addr, addr, ETH_ALEN);
+	ether_addr_copy(set_key.u.write.addr, addr);
 
 	/* swap over swap[0] and swap[1] to get correct write order */
 	swap(set_key.u.swap[0], set_key.u.swap[1]);
@@ -147,7 +142,7 @@ void MACvSetKeyEntry(struct vnt_private *priv, u16 key_ctl, u32 entry_idx,
 		(u16)key_idx, sizeof(struct vnt_mac_set_key), (u8 *)&set_key);
 }
 
-void MACvRegBitsOff(struct vnt_private *priv, u8 reg_ofs, u8 bits)
+void vnt_mac_reg_bits_off(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 {
 	u8 data[2];
 
@@ -158,7 +153,7 @@ void MACvRegBitsOff(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 		reg_ofs, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvRegBitsOn(struct vnt_private *priv, u8 reg_ofs, u8 bits)
+void vnt_mac_reg_bits_on(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 {
 	u8 data[2];
 
@@ -169,7 +164,7 @@ void MACvRegBitsOn(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 		reg_ofs, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvWriteWord(struct vnt_private *priv, u8 reg_ofs, u16 word)
+void vnt_mac_write_word(struct vnt_private *priv, u8 reg_ofs, u16 word)
 {
 	u8 data[2];
 
@@ -180,13 +175,13 @@ void MACvWriteWord(struct vnt_private *priv, u8 reg_ofs, u16 word)
 		reg_ofs, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvWriteBSSIDAddress(struct vnt_private *priv, u8 *addr)
+void vnt_mac_set_bssid_addr(struct vnt_private *priv, u8 *addr)
 {
 	vnt_control_out(priv, MESSAGE_TYPE_WRITE, MAC_REG_BSSID0,
 		MESSAGE_REQUEST_MACREG, ETH_ALEN, addr);
 }
 
-void MACvEnableProtectMD(struct vnt_private *priv)
+void vnt_mac_enable_protect_mode(struct vnt_private *priv)
 {
 	u8 data[2];
 
@@ -197,7 +192,7 @@ void MACvEnableProtectMD(struct vnt_private *priv)
 		MAC_REG_ENCFG0, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvDisableProtectMD(struct vnt_private *priv)
+void vnt_mac_disable_protect_mode(struct vnt_private *priv)
 {
 	u8 data[2];
 
@@ -208,7 +203,7 @@ void MACvDisableProtectMD(struct vnt_private *priv)
 		MAC_REG_ENCFG0, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvEnableBarkerPreambleMd(struct vnt_private *priv)
+void vnt_mac_enable_barker_preamble_mode(struct vnt_private *priv)
 {
 	u8 data[2];
 
@@ -219,7 +214,7 @@ void MACvEnableBarkerPreambleMd(struct vnt_private *priv)
 		MAC_REG_ENCFG2, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvDisableBarkerPreambleMd(struct vnt_private *priv)
+void vnt_mac_disable_barker_preamble_mode(struct vnt_private *priv)
 {
 	u8 data[2];
 
@@ -230,7 +225,7 @@ void MACvDisableBarkerPreambleMd(struct vnt_private *priv)
 		MAC_REG_ENCFG2, MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvWriteBeaconInterval(struct vnt_private *priv, u16 interval)
+void vnt_mac_set_beacon_interval(struct vnt_private *priv, u16 interval)
 {
 	u8 data[2];
 
@@ -250,6 +245,4 @@ void vnt_mac_set_led(struct vnt_private *priv, u8 state, u8 led)
 
 	vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_PAPEDELAY,
 			MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
-
-	return;
 }

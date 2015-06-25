@@ -110,6 +110,12 @@
 #define XUSBIO_PLL_CFG0_SEQ_ENABLE		BIT(24)
 #define XUSBIO_PLL_CFG0_SEQ_START_STATE		BIT(25)
 
+#define SATA_PLL_CFG0		0x490
+#define SATA_PLL_CFG0_PADPLL_RESET_SWCTL	BIT(0)
+#define SATA_PLL_CFG0_PADPLL_USE_LOCKDET	BIT(2)
+#define SATA_PLL_CFG0_SEQ_ENABLE		BIT(24)
+#define SATA_PLL_CFG0_SEQ_START_STATE		BIT(25)
+
 #define PLLE_MISC_PLLE_PTS	BIT(8)
 #define PLLE_MISC_IDDQ_SW_VALUE	BIT(13)
 #define PLLE_MISC_IDDQ_SW_CTRL	BIT(14)
@@ -810,7 +816,9 @@ const struct clk_ops tegra_clk_plle_ops = {
 	.enable = clk_plle_enable,
 };
 
-#if defined(CONFIG_ARCH_TEGRA_114_SOC) || defined(CONFIG_ARCH_TEGRA_124_SOC)
+#if defined(CONFIG_ARCH_TEGRA_114_SOC) || \
+	defined(CONFIG_ARCH_TEGRA_124_SOC) || \
+	defined(CONFIG_ARCH_TEGRA_132_SOC)
 
 static int _pll_fixed_mdiv(struct tegra_clk_pll_params *pll_params,
 			   unsigned long parent_rate)
@@ -973,7 +981,7 @@ static int clk_pllxc_set_rate(struct clk_hw *hw, unsigned long rate,
 	struct tegra_clk_pll *pll = to_clk_pll(hw);
 	struct tegra_clk_pll_freq_table cfg, old_cfg;
 	unsigned long flags = 0;
-	int ret = 0;
+	int ret;
 
 	ret = _pll_ramp_calc_pll(hw, &cfg, rate, parent_rate);
 	if (ret < 0)
@@ -997,7 +1005,7 @@ static long clk_pll_ramp_round_rate(struct clk_hw *hw, unsigned long rate,
 				unsigned long *prate)
 {
 	struct tegra_clk_pll_freq_table cfg;
-	int ret = 0, p_div;
+	int ret, p_div;
 	u64 output_rate = *prate;
 
 	ret = _pll_ramp_calc_pll(hw, &cfg, rate, *prate);
@@ -1065,7 +1073,7 @@ static int clk_pllc_enable(struct clk_hw *hw)
 {
 	struct tegra_clk_pll *pll = to_clk_pll(hw);
 	u32 val;
-	int ret = 0;
+	int ret;
 	unsigned long flags = 0;
 
 	if (pll->lock)
@@ -1215,6 +1223,7 @@ static long _pllre_calc_rate(struct tegra_clk_pll *pll,
 
 	return output_rate;
 }
+
 static int clk_pllre_set_rate(struct clk_hw *hw, unsigned long rate,
 				unsigned long parent_rate)
 {
@@ -1361,6 +1370,19 @@ static int clk_plle_tegra114_enable(struct clk_hw *hw)
 	val |= XUSBIO_PLL_CFG0_SEQ_ENABLE;
 	pll_writel(val, XUSBIO_PLL_CFG0, pll);
 
+	/* Enable hw control of SATA pll */
+	val = pll_readl(SATA_PLL_CFG0, pll);
+	val &= ~SATA_PLL_CFG0_PADPLL_RESET_SWCTL;
+	val |= SATA_PLL_CFG0_PADPLL_USE_LOCKDET;
+	val |= SATA_PLL_CFG0_SEQ_START_STATE;
+	pll_writel(val, SATA_PLL_CFG0, pll);
+
+	udelay(1);
+
+	val = pll_readl(SATA_PLL_CFG0, pll);
+	val |= SATA_PLL_CFG0_SEQ_ENABLE;
+	pll_writel(val, SATA_PLL_CFG0, pll);
+
 out:
 	if (pll->lock)
 		spin_unlock_irqrestore(pll->lock, flags);
@@ -1486,7 +1508,9 @@ struct clk *tegra_clk_register_plle(const char *name, const char *parent_name,
 	return clk;
 }
 
-#if defined(CONFIG_ARCH_TEGRA_114_SOC) || defined(CONFIG_ARCH_TEGRA_124_SOC)
+#if defined(CONFIG_ARCH_TEGRA_114_SOC) || \
+	defined(CONFIG_ARCH_TEGRA_124_SOC) || \
+	defined(CONFIG_ARCH_TEGRA_132_SOC)
 static const struct clk_ops tegra_clk_pllxc_ops = {
 	.is_enabled = clk_pll_is_enabled,
 	.enable = clk_pll_iddq_enable,
@@ -1546,7 +1570,7 @@ struct clk *tegra_clk_register_pllxc(const char *name, const char *parent_name,
 	parent = __clk_lookup(parent_name);
 	if (!parent) {
 		WARN(1, "parent clk %s of %s must be registered first\n",
-			name, parent_name);
+			parent_name, name);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -1646,7 +1670,7 @@ struct clk *tegra_clk_register_pllm(const char *name, const char *parent_name,
 	parent = __clk_lookup(parent_name);
 	if (!parent) {
 		WARN(1, "parent clk %s of %s must be registered first\n",
-			name, parent_name);
+			parent_name, name);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -1687,7 +1711,7 @@ struct clk *tegra_clk_register_pllc(const char *name, const char *parent_name,
 	parent = __clk_lookup(parent_name);
 	if (!parent) {
 		WARN(1, "parent clk %s of %s must be registered first\n",
-			name, parent_name);
+			parent_name, name);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -1783,7 +1807,7 @@ struct clk *tegra_clk_register_plle_tegra114(const char *name,
 }
 #endif
 
-#ifdef CONFIG_ARCH_TEGRA_124_SOC
+#if defined(CONFIG_ARCH_TEGRA_124_SOC) || defined(CONFIG_ARCH_TEGRA_132_SOC)
 static const struct clk_ops tegra_clk_pllss_ops = {
 	.is_enabled = clk_pll_is_enabled,
 	.enable = clk_pll_iddq_enable,
@@ -1811,7 +1835,7 @@ struct clk *tegra_clk_register_pllss(const char *name, const char *parent_name,
 	parent = __clk_lookup(parent_name);
 	if (!parent) {
 		WARN(1, "parent clk %s of %s must be registered first\n",
-			name, parent_name);
+			parent_name, name);
 		return ERR_PTR(-EINVAL);
 	}
 

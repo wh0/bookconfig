@@ -167,17 +167,17 @@ static int si476x_codec_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	switch (params_format(params)) {
-	case SNDRV_PCM_FORMAT_S8:
+	switch (params_width(params)) {
+	case 8:
 		width = SI476X_PCM_FORMAT_S8;
 		break;
-	case SNDRV_PCM_FORMAT_S16_LE:
+	case 16:
 		width = SI476X_PCM_FORMAT_S16_LE;
 		break;
-	case SNDRV_PCM_FORMAT_S20_3LE:
+	case 20:
 		width = SI476X_PCM_FORMAT_S20_3LE;
 		break;
-	case SNDRV_PCM_FORMAT_S24_LE:
+	case 24:
 		width = SI476X_PCM_FORMAT_S24_LE;
 		break;
 	default:
@@ -261,7 +261,6 @@ MODULE_ALIAS("platform:si476x-codec");
 static struct platform_driver si476x_platform_driver = {
 	.driver		= {
 		.name	= "si476x-codec",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= si476x_platform_probe,
 	.remove		= si476x_platform_remove,

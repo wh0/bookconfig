@@ -564,7 +564,7 @@ static void uli526x_init(struct net_device *dev)
 	if ( !(db->media_mode & ULI526X_AUTO) )
 		db->op_mode = db->media_mode;		/* Force Mode */
 
-	/* Initialize Transmit/Receive decriptor and CR3/4 */
+	/* Initialize Transmit/Receive descriptor and CR3/4 */
 	uli526x_descriptor_init(dev, ioaddr);
 
 	/* Init CR6 to program M526X operation */
@@ -1768,7 +1768,7 @@ static u16 phy_read_1bit(struct uli526x_board_info *db)
 }
 
 
-static DEFINE_PCI_DEVICE_TABLE(uli526x_pci_tbl) = {
+static const struct pci_device_id uli526x_pci_tbl[] = {
 	{ 0x10B9, 0x5261, PCI_ANY_ID, PCI_ANY_ID, 0, 0, PCI_ULI5261_ID },
 	{ 0x10B9, 0x5263, PCI_ANY_ID, PCI_ANY_ID, 0, 0, PCI_ULI5263_ID },
 	{ 0, }
@@ -1837,7 +1837,7 @@ static int __init uli526x_init_module(void)
 
 static void __exit uli526x_cleanup_module(void)
 {
-	ULI526X_DBUG(0, "uli526x_clean_module() ", debug);
+	ULI526X_DBUG(0, "uli526x_cleanup_module() ", debug);
 	pci_unregister_driver(&uli526x_driver);
 }
 

@@ -267,13 +267,13 @@ static irqreturn_t at91_adc_trigger_handler(int irq, void *p)
 }
 
 /* Handler for classic adc channel eoc trigger */
-void handle_adc_eoc_trigger(int irq, struct iio_dev *idev)
+static void handle_adc_eoc_trigger(int irq, struct iio_dev *idev)
 {
 	struct at91_adc_state *st = iio_priv(idev);
 
 	if (iio_buffer_enabled(idev)) {
 		disable_irq_nosync(irq);
-		iio_trigger_poll(idev->trig, iio_get_time_ns());
+		iio_trigger_poll(idev->trig);
 	} else {
 		st->last_value = at91_adc_readl(st, AT91_ADC_CHAN(st, st->chnb));
 		st->done = true;
@@ -544,7 +544,6 @@ static int at91_adc_configure_trigger(struct iio_trigger *trig, bool state)
 {
 	struct iio_dev *idev = iio_trigger_get_drvdata(trig);
 	struct at91_adc_state *st = iio_priv(idev);
-	struct iio_buffer *buffer = idev->buffer;
 	struct at91_adc_reg_desc *reg = st->registers;
 	u32 status = at91_adc_readl(st, reg->trigger_register);
 	int value;
@@ -564,7 +563,7 @@ static int at91_adc_configure_trigger(struct iio_trigger *trig, bool state)
 		at91_adc_writel(st, reg->trigger_register,
 				status | value);
 
-		for_each_set_bit(bit, buffer->scan_mask,
+		for_each_set_bit(bit, idev->active_scan_mask,
 				 st->num_channels) {
 			struct iio_chan_spec const *chan = idev->channels + bit;
 			at91_adc_writel(st, AT91_ADC_CHER,
@@ -579,7 +578,7 @@ static int at91_adc_configure_trigger(struct iio_trigger *trig, bool state)
 		at91_adc_writel(st, reg->trigger_register,
 				status & ~value);
 
-		for_each_set_bit(bit, buffer->scan_mask,
+		for_each_set_bit(bit, idev->active_scan_mask,
 				 st->num_channels) {
 			struct iio_chan_spec const *chan = idev->channels + bit;
 			at91_adc_writel(st, AT91_ADC_CHDR,

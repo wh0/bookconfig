@@ -77,6 +77,11 @@ struct arizona_priv {
 	int num_inputs;
 	unsigned int in_pending;
 
+	unsigned int out_up_pending;
+	unsigned int out_up_delay;
+	unsigned int out_down_pending;
+	unsigned int out_down_delay;
+
 	unsigned int spk_ena:2;
 	unsigned int spk_ena_pending:1;
 };
@@ -249,6 +254,7 @@ extern int arizona_set_fll(struct arizona_fll *fll, int source,
 
 extern int arizona_init_spk(struct snd_soc_codec *codec);
 extern int arizona_init_gpio(struct snd_soc_codec *codec);
+extern int arizona_init_mono(struct snd_soc_codec *codec);
 
 extern int arizona_init_dai(struct arizona_priv *priv, int dai);
 

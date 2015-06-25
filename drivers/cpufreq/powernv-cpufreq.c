@@ -26,6 +26,7 @@
 #include <linux/cpufreq.h>
 #include <linux/smp.h>
 #include <linux/of.h>
+#include <linux/reboot.h>
 
 #include <asm/cputhreads.h>
 #include <asm/firmware.h>
@@ -33,8 +34,13 @@
 #include <asm/smp.h> /* Required for cpu_sibling_mask() in UP configs */
 
 #define POWERNV_MAX_PSTATES	256
+#define PMSR_PSAFE_ENABLE	(1UL << 30)
+#define PMSR_SPR_EM_DISABLE	(1UL << 31)
+#define PMSR_MAX(x)		((x >> 32) & 0xFF)
+#define PMSR_LP(x)		((x >> 48) & 0xFF)
 
 static struct cpufreq_frequency_table powernv_freqs[POWERNV_MAX_PSTATES+1];
+static bool rebooting, throttled;
 
 /*
  * Note: The set of pstates consists of contiguous integers, the
@@ -284,6 +290,53 @@ static void set_pstate(void *freq_data)
 }
 
 /*
+ * get_nominal_index: Returns the index corresponding to the nominal
+ * pstate in the cpufreq table
+ */
+static inline unsigned int get_nominal_index(void)
+{
+	return powernv_pstate_info.max - powernv_pstate_info.nominal;
+}
+
+static void powernv_cpufreq_throttle_check(unsigned int cpu)
+{
+	unsigned long pmsr;
+	int pmsr_pmax, pmsr_lp;
+
+	pmsr = get_pmspr(SPRN_PMSR);
+
+	/* Check for Pmax Capping */
+	pmsr_pmax = (s8)PMSR_MAX(pmsr);
+	if (pmsr_pmax != powernv_pstate_info.max) {
+		throttled = true;
+		pr_info("CPU %d Pmax is reduced to %d\n", cpu, pmsr_pmax);
+		pr_info("Max allowed Pstate is capped\n");
+	}
+
+	/*
+	 * Check for Psafe by reading LocalPstate
+	 * or check if Psafe_mode_active is set in PMSR.
+	 */
+	pmsr_lp = (s8)PMSR_LP(pmsr);
+	if ((pmsr_lp < powernv_pstate_info.min) ||
+				(pmsr & PMSR_PSAFE_ENABLE)) {
+		throttled = true;
+		pr_info("Pstate set to safe frequency\n");
+	}
+
+	/* Check if SPR_EM_DISABLE is set in PMSR */
+	if (pmsr & PMSR_SPR_EM_DISABLE) {
+		throttled = true;
+		pr_info("Frequency Control disabled from OS\n");
+	}
+
+	if (throttled) {
+		pr_info("PMSR = %16lx\n", pmsr);
+		pr_crit("CPU Frequency could be throttled\n");
+	}
+}
+
+/*
  * powernv_cpufreq_target_index: Sets the frequency corresponding to
  * the cpufreq table entry indexed by new_index on the cpus in the
  * mask policy->cpus
@@ -292,6 +345,12 @@ static int powernv_cpufreq_target_index(struct cpufreq_policy *policy,
 					unsigned int new_index)
 {
 	struct powernv_smp_call_data freq_data;
+
+	if (unlikely(rebooting) && new_index != get_nominal_index())
+		return 0;
+
+	if (!throttled)
+		powernv_cpufreq_throttle_check(smp_processor_id());
 
 	freq_data.pstate_id = powernv_freqs[new_index].driver_data;
 
@@ -317,6 +376,33 @@ static int powernv_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	return cpufreq_table_validate_and_show(policy, powernv_freqs);
 }
 
+static int powernv_cpufreq_reboot_notifier(struct notifier_block *nb,
+				unsigned long action, void *unused)
+{
+	int cpu;
+	struct cpufreq_policy cpu_policy;
+
+	rebooting = true;
+	for_each_online_cpu(cpu) {
+		cpufreq_get_policy(&cpu_policy, cpu);
+		powernv_cpufreq_target_index(&cpu_policy, get_nominal_index());
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block powernv_cpufreq_reboot_nb = {
+	.notifier_call = powernv_cpufreq_reboot_notifier,
+};
+
+static void powernv_cpufreq_stop_cpu(struct cpufreq_policy *policy)
+{
+	struct powernv_smp_call_data freq_data;
+
+	freq_data.pstate_id = powernv_pstate_info.min;
+	smp_call_function_single(policy->cpu, set_pstate, &freq_data, 1);
+}
+
 static struct cpufreq_driver powernv_cpufreq_driver = {
 	.name		= "powernv-cpufreq",
 	.flags		= CPUFREQ_CONST_LOOPS,
@@ -324,6 +410,7 @@ static struct cpufreq_driver powernv_cpufreq_driver = {
 	.verify		= cpufreq_generic_frequency_table_verify,
 	.target_index	= powernv_cpufreq_target_index,
 	.get		= powernv_cpufreq_get,
+	.stop_cpu	= powernv_cpufreq_stop_cpu,
 	.attr		= powernv_cpu_freq_attr,
 };
 
@@ -342,12 +429,14 @@ static int __init powernv_cpufreq_init(void)
 		return rc;
 	}
 
+	register_reboot_notifier(&powernv_cpufreq_reboot_nb);
 	return cpufreq_register_driver(&powernv_cpufreq_driver);
 }
 module_init(powernv_cpufreq_init);
 
 static void __exit powernv_cpufreq_exit(void)
 {
+	unregister_reboot_notifier(&powernv_cpufreq_reboot_nb);
 	cpufreq_unregister_driver(&powernv_cpufreq_driver);
 }
 module_exit(powernv_cpufreq_exit);

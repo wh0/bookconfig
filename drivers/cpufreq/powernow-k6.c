@@ -55,6 +55,7 @@ static const struct {
 	unsigned freq;
 	unsigned mult;
 } usual_frequency_table[] = {
+	{ 350000, 35 },	// 100   * 3.5
 	{ 400000, 40 },	// 100   * 4
 	{ 450000, 45 }, // 100   * 4.5
 	{ 475000, 50 }, //  95   * 5
@@ -299,7 +300,7 @@ static void __exit powernow_k6_exit(void)
 }
 
 
-MODULE_AUTHOR("Arjan van de Ven, Dave Jones <davej@redhat.com>, "
+MODULE_AUTHOR("Arjan van de Ven, Dave Jones, "
 		"Dominik Brodowski <linux@brodo.de>");
 MODULE_DESCRIPTION("PowerNow! driver for AMD K6-2+ / K6-3+ processors.");
 MODULE_LICENSE("GPL");

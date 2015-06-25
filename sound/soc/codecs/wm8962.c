@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
 #include <linux/gcd.h>
@@ -25,6 +26,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
+#include <linux/mutex.h>
 #include <sound/core.h>
 #include <sound/jack.h>
 #include <sound/pcm.h>
@@ -66,6 +68,7 @@ struct wm8962_priv {
 	int fll_fref;
 	int fll_fout;
 
+	struct mutex dsp2_ena_lock;
 	u16 dsp2_ena;
 
 	struct delayed_work mic_work;
@@ -1569,7 +1572,7 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 	int dsp2_running = snd_soc_read(codec, WM8962_DSP2_POWER_MANAGEMENT) &
 		WM8962_DSP2_ENA;
 
-	mutex_lock(&codec->mutex);
+	mutex_lock(&wm8962->dsp2_ena_lock);
 
 	if (ucontrol->value.integer.value[0])
 		wm8962->dsp2_ena |= 1 << shift;
@@ -1589,7 +1592,7 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 	}
 
 out:
-	mutex_unlock(&codec->mutex);
+	mutex_unlock(&wm8962->dsp2_ena_lock);
 
 	return ret;
 }
@@ -1863,7 +1866,7 @@ static int cp_event(struct snd_soc_dapm_widget *w,
 static int hp_event(struct snd_soc_dapm_widget *w,
 		    struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	int timeout;
 	int reg;
 	int expected = (WM8962_DCS_STARTUP_DONE_HP1L |
@@ -1957,7 +1960,7 @@ static int hp_event(struct snd_soc_dapm_widget *w,
 static int out_pga_event(struct snd_soc_dapm_widget *w,
 			 struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	int reg;
 
 	switch (w->shift) {
@@ -1990,7 +1993,7 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 static int dsp2_event(struct snd_soc_dapm_widget *w,
 		      struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct wm8962_priv *wm8962 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
@@ -2586,16 +2589,16 @@ static int wm8962_hw_params(struct snd_pcm_substream *substream,
 	if (wm8962->lrclk % 8000 == 0)
 		adctl3 |= WM8962_SAMPLE_RATE_INT_MODE;
 
-	switch (params_format(params)) {
-	case SNDRV_PCM_FORMAT_S16_LE:
+	switch (params_width(params)) {
+	case 16:
 		break;
-	case SNDRV_PCM_FORMAT_S20_3LE:
+	case 20:
 		aif0 |= 0x4;
 		break;
-	case SNDRV_PCM_FORMAT_S24_LE:
+	case 24:
 		aif0 |= 0x8;
 		break;
-	case SNDRV_PCM_FORMAT_S32_LE:
+	case 32:
 		aif0 |= 0xc;
 		break;
 	default:
@@ -3397,11 +3400,8 @@ static void wm8962_init_gpio(struct snd_soc_codec *codec)
 static void wm8962_free_gpio(struct snd_soc_codec *codec)
 {
 	struct wm8962_priv *wm8962 = snd_soc_codec_get_drvdata(codec);
-	int ret;
 
-	ret = gpiochip_remove(&wm8962->gpio_chip);
-	if (ret != 0)
-		dev_err(codec->dev, "Failed to remove GPIOs: %d\n", ret);
+	gpiochip_remove(&wm8962->gpio_chip);
 }
 #else
 static void wm8962_init_gpio(struct snd_soc_codec *codec)
@@ -3541,6 +3541,8 @@ static int wm8962_set_pdata_from_of(struct i2c_client *i2c,
 				pdata->gpio_init[i] = 0x0;
 		}
 
+	pdata->mclk = devm_clk_get(&i2c->dev, NULL);
+
 	return 0;
 }
 
@@ -3552,10 +3554,11 @@ static int wm8962_i2c_probe(struct i2c_client *i2c,
 	unsigned int reg;
 	int ret, i, irq_pol, trigger;
 
-	wm8962 = devm_kzalloc(&i2c->dev, sizeof(struct wm8962_priv),
-			      GFP_KERNEL);
+	wm8962 = devm_kzalloc(&i2c->dev, sizeof(*wm8962), GFP_KERNEL);
 	if (wm8962 == NULL)
 		return -ENOMEM;
+
+	mutex_init(&wm8962->dsp2_ena_lock);
 
 	i2c_set_clientdata(i2c, wm8962);
 
@@ -3570,6 +3573,14 @@ static int wm8962_i2c_probe(struct i2c_client *i2c,
 		ret = wm8962_set_pdata_from_of(i2c, &wm8962->pdata);
 		if (ret != 0)
 			return ret;
+	}
+
+	/* Mark the mclk pointer to NULL if no mclk assigned */
+	if (IS_ERR(wm8962->pdata.mclk)) {
+		/* But do not ignore the request for probe defer */
+		if (PTR_ERR(wm8962->pdata.mclk) == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+		wm8962->pdata.mclk = NULL;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(wm8962->supplies); i++)
@@ -3774,11 +3785,17 @@ static int wm8962_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 static int wm8962_runtime_resume(struct device *dev)
 {
 	struct wm8962_priv *wm8962 = dev_get_drvdata(dev);
 	int ret;
+
+	ret = clk_prepare_enable(wm8962->pdata.mclk);
+	if (ret) {
+		dev_err(dev, "Failed to enable MCLK: %d\n", ret);
+		return ret;
+	}
 
 	ret = regulator_bulk_enable(ARRAY_SIZE(wm8962->supplies),
 				    wm8962->supplies);
@@ -3838,6 +3855,8 @@ static int wm8962_runtime_suspend(struct device *dev)
 
 	regulator_bulk_disable(ARRAY_SIZE(wm8962->supplies),
 			       wm8962->supplies);
+
+	clk_disable_unprepare(wm8962->pdata.mclk);
 
 	return 0;
 }

@@ -7,7 +7,7 @@
 # Edit the definitions below to set the locations of the various directories,
 # as well as the test duration.
 #
-# Usage: sh kvm.sh [ options ]
+# Usage: kvm.sh [ options ]
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,7 +47,6 @@ resdir=""
 configs=""
 cpus=0
 ds=`date +%Y.%m.%d-%H:%M:%S`
-kversion=""
 
 . functions.sh
 
@@ -64,7 +63,6 @@ usage () {
 	echo "       --duration minutes"
 	echo "       --interactive"
 	echo "       --kmake-arg kernel-make-arguments"
-	echo "       --kversion vN.NN"
 	echo "       --mac nn:nn:nn:nn:nn:nn"
 	echo "       --no-initrd"
 	echo "       --qemu-args qemu-system-..."
@@ -128,11 +126,6 @@ do
 		TORTURE_KMAKE_ARG="$2"
 		shift
 		;;
-	--kversion)
-		checkarg --kversion "(kernel version)" $# "$2" '^v[0-9.]*$' '^error'
-		kversion=$2
-		shift
-		;;
 	--mac)
 		checkarg --mac "(MAC address)" $# "$2" '^\([0-9a-fA-F]\{2\}:\)\{5\}[0-9a-fA-F]\{2\}$' error
 		TORTURE_QEMU_MAC=$2
@@ -170,11 +163,10 @@ do
 done
 
 CONFIGFRAG=${KVM}/configs/${TORTURE_SUITE}; export CONFIGFRAG
-KVPATH=${CONFIGFRAG}/$kversion; export KVPATH
 
 if test -z "$configs"
 then
-	configs="`cat $CONFIGFRAG/$kversion/CFLIST`"
+	configs="`cat $CONFIGFRAG/CFLIST`"
 fi
 
 if test -z "$resdir"
@@ -186,9 +178,11 @@ fi
 touch $T/cfgcpu
 for CF in $configs
 do
-	if test -f "$CONFIGFRAG/$kversion/$CF"
+	if test -f "$CONFIGFRAG/$CF"
 	then
-		echo $CF `configNR_CPUS.sh $CONFIGFRAG/$kversion/$CF` >> $T/cfgcpu
+		cpu_count=`configNR_CPUS.sh $CONFIGFRAG/$CF`
+		cpu_count=`configfrag_boot_cpus "$TORTURE_BOOTARGS" "$CONFIGFRAG/$CF" "$cpu_count"`
+		echo $CF $cpu_count >> $T/cfgcpu
 	else
 		echo "The --configs file $CF does not exist, terminating."
 		exit 1
@@ -250,7 +244,6 @@ END {
 cat << ___EOF___ > $T/script
 CONFIGFRAG="$CONFIGFRAG"; export CONFIGFRAG
 KVM="$KVM"; export KVM
-KVPATH="$KVPATH"; export KVPATH
 PATH="$PATH"; export PATH
 TORTURE_BOOT_IMAGE="$TORTURE_BOOT_IMAGE"; export TORTURE_BOOT_IMAGE
 TORTURE_BUILDONLY="$TORTURE_BUILDONLY"; export TORTURE_BUILDONLY
@@ -283,7 +276,7 @@ then
 fi
 ___EOF___
 awk < $T/cfgcpu.pack \
-	-v CONFIGDIR="$CONFIGFRAG/$kversion/" \
+	-v CONFIGDIR="$CONFIGFRAG/" \
 	-v KVM="$KVM" \
 	-v ncpus=$cpus \
 	-v rd=$resdir/$ds/ \
@@ -317,7 +310,7 @@ function dump(first, pastlast)
 			cfr[jn] = cf[j] "." cfrep[cf[j]];
 		}
 		if (cpusr[jn] > ncpus && ncpus != 0)
-			ovf = "(!)";
+			ovf = "-ovf";
 		else
 			ovf = "";
 		print "echo ", cfr[jn], cpusr[jn] ovf ": Starting build. `date`";
@@ -340,12 +333,18 @@ function dump(first, pastlast)
 	for (j = 1; j < jn; j++) {
 		builddir=KVM "/b" j
 		print "rm -f " builddir ".ready"
-		print "echo ----", cfr[j], cpusr[j] ovf ": Starting kernel. `date`";
-		print "echo ----", cfr[j], cpusr[j] ovf ": Starting kernel. `date` >> " rd "/log";
+		print "if test -z \"$TORTURE_BUILDONLY\""
+		print "then"
+		print "\techo ----", cfr[j], cpusr[j] ovf ": Starting kernel. `date`";
+		print "\techo ----", cfr[j], cpusr[j] ovf ": Starting kernel. `date` >> " rd "/log";
+		print "fi"
 	}
 	print "wait"
-	print "echo ---- All kernel runs complete. `date`";
-	print "echo ---- All kernel runs complete. `date` >> " rd "/log";
+	print "if test -z \"$TORTURE_BUILDONLY\""
+	print "then"
+	print "\techo ---- All kernel runs complete. `date`";
+	print "\techo ---- All kernel runs complete. `date` >> " rd "/log";
+	print "fi"
 	for (j = 1; j < jn; j++) {
 		builddir=KVM "/b" j
 		print "echo ----", cfr[j], cpusr[j] ovf ": Build/run results:";
@@ -385,10 +384,7 @@ echo
 echo
 echo " --- `date` Test summary:"
 echo Results directory: $resdir/$ds
-if test -z "$TORTURE_BUILDONLY"
-then
-	kvm-recheck.sh $resdir/$ds
-fi
+kvm-recheck.sh $resdir/$ds
 ___EOF___
 
 if test "$dryrun" = script
@@ -403,7 +399,7 @@ then
 		sed -e 's/:.*$//' -e 's/^echo //'
 	exit 0
 else
-	# Not a dryru, so run the script.
+	# Not a dryrun, so run the script.
 	sh $T/script
 fi
 

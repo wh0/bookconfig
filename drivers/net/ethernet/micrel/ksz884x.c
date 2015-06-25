@@ -2303,12 +2303,6 @@ static inline int port_chk_force_flow_ctrl(struct ksz_hw *hw, int p)
 
 /* Spanning Tree */
 
-static inline void port_cfg_dis_learn(struct ksz_hw *hw, int p, int set)
-{
-	port_cfg(hw, p,
-		KS8842_PORT_CTRL_2_OFFSET, PORT_LEARN_DISABLE, set);
-}
-
 static inline void port_cfg_rx(struct ksz_hw *hw, int p, int set)
 {
 	port_cfg(hw, p,
@@ -4150,7 +4144,7 @@ static int hw_del_addr(struct ksz_hw *hw, u8 *mac_addr)
 
 	for (i = 0; i < hw->addr_list_size; i++) {
 		if (ether_addr_equal(hw->address[i], mac_addr)) {
-			memset(hw->address[i], 0, ETH_ALEN);
+			eth_zero_addr(hw->address[i]);
 			writel(0, hw->io + ADD_ADDR_INCR * i +
 				KS_ADD_ADDR_0_HI);
 			return 0;
@@ -4348,9 +4342,7 @@ static void ksz_init_timer(struct ksz_timer_info *info, int period,
 {
 	info->max = 0;
 	info->period = period;
-	init_timer(&info->timer);
-	info->timer.function = function;
-	info->timer.data = (unsigned long) data;
+	setup_timer(&info->timer, function, (unsigned long)data);
 }
 
 static void ksz_update_timer(struct ksz_timer_info *info)
@@ -4409,14 +4401,13 @@ static int ksz_alloc_desc(struct dev_info *adapter)
 		DESC_ALIGNMENT;
 
 	adapter->desc_pool.alloc_virt =
-		pci_alloc_consistent(
-			adapter->pdev, adapter->desc_pool.alloc_size,
-			&adapter->desc_pool.dma_addr);
+		pci_zalloc_consistent(adapter->pdev,
+				      adapter->desc_pool.alloc_size,
+				      &adapter->desc_pool.dma_addr);
 	if (adapter->desc_pool.alloc_virt == NULL) {
 		adapter->desc_pool.alloc_size = 0;
 		return 1;
 	}
-	memset(adapter->desc_pool.alloc_virt, 0, adapter->desc_pool.alloc_size);
 
 	/* Align to the next cache line boundary. */
 	offset = (((ulong) adapter->desc_pool.alloc_virt % DESC_ALIGNMENT) ?
@@ -7222,7 +7213,7 @@ static int pcidev_suspend(struct pci_dev *pdev, pm_message_t state)
 
 static char pcidev_name[] = "ksz884xp";
 
-static DEFINE_PCI_DEVICE_TABLE(pcidev_table) = {
+static const struct pci_device_id pcidev_table[] = {
 	{ PCI_VENDOR_ID_MICREL_KS, 0x8841,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
 	{ PCI_VENDOR_ID_MICREL_KS, 0x8842,

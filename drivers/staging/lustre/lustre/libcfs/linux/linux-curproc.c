@@ -48,7 +48,7 @@
 
 #define DEBUG_SUBSYSTEM S_LNET
 
-#include <linux/libcfs/libcfs.h>
+#include "../../../include/linux/libcfs/libcfs.h"
 
 /*
  * Implementation of cfs_curproc API (see portals/include/libcfs/curproc.h)
@@ -82,15 +82,10 @@ int cfs_cap_raised(cfs_cap_t cap)
 	return cap_raised(current_cap(), cap);
 }
 
-void cfs_kernel_cap_pack(kernel_cap_t kcap, cfs_cap_t *cap)
+static void cfs_kernel_cap_pack(kernel_cap_t kcap, cfs_cap_t *cap)
 {
 	/* XXX lost high byte */
 	*cap = kcap.cap[0];
-}
-
-void cfs_kernel_cap_unpack(kernel_cap_t *kcap, cfs_cap_t cap)
-{
-	kcap->cap[0] = cap;
 }
 
 cfs_cap_t cfs_curproc_cap_pack(void)

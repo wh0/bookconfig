@@ -1,7 +1,7 @@
 /*
  * Marvell Wireless LAN device driver: WMM
  *
- * Copyright (C) 2011, Marvell International Ltd.
+ * Copyright (C) 2011-2014, Marvell International Ltd.
  *
  * This software file (the "File") is distributed by Marvell International
  * Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -127,4 +127,6 @@ mwifiex_wmm_get_queue_raptr(struct mwifiex_private *priv, u8 tid,
 			    const u8 *ra_addr);
 u8 mwifiex_wmm_downgrade_tid(struct mwifiex_private *priv, u32 tid);
 
+struct mwifiex_ra_list_tbl *mwifiex_wmm_get_ralist_node(struct mwifiex_private
+					*priv, u8 tid, const u8 *ra_addr);
 #endif /* !_MWIFIEX_WMM_H_ */

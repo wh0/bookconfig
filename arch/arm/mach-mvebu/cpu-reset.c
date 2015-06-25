@@ -15,7 +15,6 @@
 #include <linux/of_address.h>
 #include <linux/io.h>
 #include <linux/resource.h>
-#include "armada-370-xp.h"
 
 static void __iomem *cpu_reset_base;
 static size_t cpu_reset_size;
@@ -67,7 +66,7 @@ static int mvebu_cpu_reset_map(struct device_node *np, int res_idx)
 	return 0;
 }
 
-int __init mvebu_cpu_reset_init(void)
+static int __init mvebu_cpu_reset_init(void)
 {
 	struct device_node *np;
 	int res_idx;

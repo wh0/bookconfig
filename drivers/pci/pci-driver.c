@@ -55,7 +55,6 @@ int pci_add_dynid(struct pci_driver *drv,
 		  unsigned long driver_data)
 {
 	struct pci_dynid *dynid;
-	int retval;
 
 	dynid = kzalloc(sizeof(*dynid), GFP_KERNEL);
 	if (!dynid)
@@ -73,9 +72,7 @@ int pci_add_dynid(struct pci_driver *drv,
 	list_add_tail(&dynid->node, &drv->dynids.list);
 	spin_unlock(&drv->dynids.lock);
 
-	retval = driver_attach(&drv->driver);
-
-	return retval;
+	return driver_attach(&drv->driver);
 }
 EXPORT_SYMBOL_GPL(pci_add_dynid);
 
@@ -582,7 +579,7 @@ static int pci_legacy_suspend_late(struct device *dev, pm_message_t state)
 			WARN_ONCE(pci_dev->current_state != prev,
 				"PCI PM: Device state not saved by %pF\n",
 				drv->suspend_late);
-			return 0;
+			goto Fixup;
 		}
 	}
 
@@ -590,6 +587,9 @@ static int pci_legacy_suspend_late(struct device *dev, pm_message_t state)
 		pci_save_state(pci_dev);
 
 	pci_pm_set_unknown_state(pci_dev);
+
+Fixup:
+	pci_fixup_device(pci_fixup_suspend_late, pci_dev);
 
 	return 0;
 }
@@ -653,7 +653,6 @@ static bool pci_has_legacy_pm_support(struct pci_dev *pci_dev)
 static int pci_pm_prepare(struct device *dev)
 {
 	struct device_driver *drv = dev->driver;
-	int error = 0;
 
 	/*
 	 * Devices having power.ignore_children set may still be necessary for
@@ -662,10 +661,12 @@ static int pci_pm_prepare(struct device *dev)
 	if (dev->power.ignore_children)
 		pm_runtime_resume(dev);
 
-	if (drv && drv->pm && drv->pm->prepare)
-		error = drv->pm->prepare(dev);
-
-	return error;
+	if (drv && drv->pm && drv->pm->prepare) {
+		int error = drv->pm->prepare(dev);
+		if (error)
+			return error;
+	}
+	return pci_dev_keep_suspended(to_pci_dev(dev));
 }
 
 
@@ -734,7 +735,7 @@ static int pci_pm_suspend_noirq(struct device *dev)
 
 	if (!pm) {
 		pci_save_state(pci_dev);
-		return 0;
+		goto Fixup;
 	}
 
 	if (pm->suspend_noirq) {
@@ -751,7 +752,7 @@ static int pci_pm_suspend_noirq(struct device *dev)
 			WARN_ONCE(pci_dev->current_state != prev,
 				"PCI PM: State of device not saved by %pF\n",
 				pm->suspend_noirq);
-			return 0;
+			goto Fixup;
 		}
 	}
 
@@ -774,6 +775,9 @@ static int pci_pm_suspend_noirq(struct device *dev)
 	 */
 	if (pci_dev->class == PCI_CLASS_SERIAL_USB_EHCI)
 		pci_write_config_word(pci_dev, PCI_COMMAND, 0);
+
+Fixup:
+	pci_fixup_device(pci_fixup_suspend_late, pci_dev);
 
 	return 0;
 }
@@ -999,8 +1003,10 @@ static int pci_pm_poweroff_noirq(struct device *dev)
 	if (pci_has_legacy_pm_support(to_pci_dev(dev)))
 		return pci_legacy_suspend_late(dev, PMSG_HIBERNATE);
 
-	if (!drv || !drv->pm)
+	if (!drv || !drv->pm) {
+		pci_fixup_device(pci_fixup_suspend_late, pci_dev);
 		return 0;
+	}
 
 	if (drv->pm->poweroff_noirq) {
 		int error;
@@ -1020,6 +1026,8 @@ static int pci_pm_poweroff_noirq(struct device *dev)
 	 */
 	if (pci_dev->class == PCI_CLASS_SERIAL_USB_EHCI)
 		pci_write_config_word(pci_dev, PCI_COMMAND, 0);
+
+	pci_fixup_device(pci_fixup_suspend_late, pci_dev);
 
 	if (pcibios_pm_ops.poweroff_noirq)
 		return pcibios_pm_ops.poweroff_noirq(dev);
@@ -1097,7 +1105,7 @@ static int pci_pm_restore(struct device *dev)
 
 #endif /* !CONFIG_HIBERNATE_CALLBACKS */
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 
 static int pci_pm_runtime_suspend(struct device *dev)
 {
@@ -1193,16 +1201,6 @@ static int pci_pm_runtime_idle(struct device *dev)
 	return ret;
 }
 
-#else /* !CONFIG_PM_RUNTIME */
-
-#define pci_pm_runtime_suspend	NULL
-#define pci_pm_runtime_resume	NULL
-#define pci_pm_runtime_idle	NULL
-
-#endif /* !CONFIG_PM_RUNTIME */
-
-#ifdef CONFIG_PM
-
 static const struct dev_pm_ops pci_dev_pm_ops = {
 	.prepare = pci_pm_prepare,
 	.suspend = pci_pm_suspend,
@@ -1224,11 +1222,15 @@ static const struct dev_pm_ops pci_dev_pm_ops = {
 
 #define PCI_PM_OPS_PTR	(&pci_dev_pm_ops)
 
-#else /* !COMFIG_PM_OPS */
+#else /* !CONFIG_PM */
+
+#define pci_pm_runtime_suspend	NULL
+#define pci_pm_runtime_resume	NULL
+#define pci_pm_runtime_idle	NULL
 
 #define PCI_PM_OPS_PTR	NULL
 
-#endif /* !COMFIG_PM_OPS */
+#endif /* !CONFIG_PM */
 
 /**
  * __pci_register_driver - register a new pci driver
@@ -1382,7 +1384,7 @@ static int pci_uevent(struct device *dev, struct kobj_uevent_env *env)
 	if (add_uevent_var(env, "PCI_SLOT_NAME=%s", pci_name(pdev)))
 		return -ENOMEM;
 
-	if (add_uevent_var(env, "MODALIAS=pci:v%08Xd%08Xsv%08Xsd%08Xbc%02Xsc%02Xi%02x",
+	if (add_uevent_var(env, "MODALIAS=pci:v%08Xd%08Xsv%08Xsd%08Xbc%02Xsc%02Xi%02X",
 			   pdev->vendor, pdev->device,
 			   pdev->subsystem_vendor, pdev->subsystem_device,
 			   (u8)(pdev->class >> 16), (u8)(pdev->class >> 8),

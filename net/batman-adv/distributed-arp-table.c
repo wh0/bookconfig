@@ -537,7 +537,8 @@ batadv_dat_select_candidates(struct batadv_priv *bat_priv, __be32 ip_dst)
 	if (!bat_priv->orig_hash)
 		return NULL;
 
-	res = kmalloc(BATADV_DAT_CANDIDATES_NUM * sizeof(*res), GFP_ATOMIC);
+	res = kmalloc_array(BATADV_DAT_CANDIDATES_NUM, sizeof(*res),
+			    GFP_ATOMIC);
 	if (!res)
 		return NULL;
 
@@ -1099,6 +1100,7 @@ void batadv_dat_snoop_outgoing_arp_reply(struct batadv_priv *bat_priv,
 	batadv_dat_send_data(bat_priv, skb, ip_src, BATADV_P_DAT_DHT_PUT);
 	batadv_dat_send_data(bat_priv, skb, ip_dst, BATADV_P_DAT_DHT_PUT);
 }
+
 /**
  * batadv_dat_snoop_incoming_arp_reply - snoop the ARP reply and fill the local
  * DAT storage only

@@ -50,6 +50,7 @@ void acpi_pic_sci_set_trigger(unsigned int, u16);
 
 extern int (*__acpi_register_gsi)(struct device *dev, u32 gsi,
 				  int trigger, int polarity);
+extern void (*__acpi_unregister_gsi)(u32 gsi);
 
 static inline void disable_acpi(void)
 {
@@ -119,6 +120,11 @@ static inline void arch_acpi_set_pdc_bits(u32 *buf)
 	 */
 	if (!cpu_has(c, X86_FEATURE_MWAIT))
 		buf[2] &= ~(ACPI_PDC_C_C2C3_FFH);
+}
+
+static inline bool acpi_has_cpu_in_madt(void)
+{
+	return !!acpi_lapic;
 }
 
 #else /* !CONFIG_ACPI */

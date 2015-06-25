@@ -14,6 +14,7 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 
+#include "internal.h"
 
 static int regmap_smbus_byte_reg_read(void *context, unsigned int reg,
 				      unsigned int *val)
@@ -85,6 +86,42 @@ static int regmap_smbus_word_reg_write(void *context, unsigned int reg,
 static struct regmap_bus regmap_smbus_word = {
 	.reg_write = regmap_smbus_word_reg_write,
 	.reg_read = regmap_smbus_word_reg_read,
+};
+
+static int regmap_smbus_word_read_swapped(void *context, unsigned int reg,
+					  unsigned int *val)
+{
+	struct device *dev = context;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	int ret;
+
+	if (reg > 0xff)
+		return -EINVAL;
+
+	ret = i2c_smbus_read_word_swapped(i2c, reg);
+	if (ret < 0)
+		return ret;
+
+	*val = ret;
+
+	return 0;
+}
+
+static int regmap_smbus_word_write_swapped(void *context, unsigned int reg,
+					   unsigned int val)
+{
+	struct device *dev = context;
+	struct i2c_client *i2c = to_i2c_client(dev);
+
+	if (val > 0xffff || reg > 0xff)
+		return -EINVAL;
+
+	return i2c_smbus_write_word_swapped(i2c, reg, val);
+}
+
+static struct regmap_bus regmap_smbus_word_swapped = {
+	.reg_write = regmap_smbus_word_write_swapped,
+	.reg_read = regmap_smbus_word_read_swapped,
 };
 
 static int regmap_i2c_write(void *context, const void *data, size_t count)
@@ -168,6 +205,8 @@ static struct regmap_bus regmap_i2c = {
 	.write = regmap_i2c_write,
 	.gather_write = regmap_i2c_gather_write,
 	.read = regmap_i2c_read,
+	.reg_format_endian_default = REGMAP_ENDIAN_BIG,
+	.val_format_endian_default = REGMAP_ENDIAN_BIG,
 };
 
 static const struct regmap_bus *regmap_get_i2c_bus(struct i2c_client *i2c,
@@ -178,7 +217,14 @@ static const struct regmap_bus *regmap_get_i2c_bus(struct i2c_client *i2c,
 	else if (config->val_bits == 16 && config->reg_bits == 8 &&
 		 i2c_check_functionality(i2c->adapter,
 					 I2C_FUNC_SMBUS_WORD_DATA))
-		return &regmap_smbus_word;
+		switch (regmap_get_val_endian(&i2c->dev, NULL, config)) {
+		case REGMAP_ENDIAN_LITTLE:
+			return &regmap_smbus_word;
+		case REGMAP_ENDIAN_BIG:
+			return &regmap_smbus_word_swapped;
+		default:		/* everything else is not supported */
+			break;
+		}
 	else if (config->val_bits == 8 && config->reg_bits == 8 &&
 		 i2c_check_functionality(i2c->adapter,
 					 I2C_FUNC_SMBUS_BYTE_DATA))

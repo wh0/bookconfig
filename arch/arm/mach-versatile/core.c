@@ -28,6 +28,7 @@
 #include <linux/of_platform.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/clcd.h>
+#include <linux/platform_data/video-clcd-versatile.h>
 #include <linux/amba/pl061.h>
 #include <linux/amba/mmci.h>
 #include <linux/amba/pl022.h>
@@ -53,7 +54,6 @@
 #include <mach/platform.h>
 #include <asm/hardware/timer-sp.h>
 
-#include <plat/clcd.h>
 #include <plat/sched_clock.h>
 
 #include "core.h"
@@ -727,43 +727,6 @@ struct of_dev_auxdata versatile_auxdata_lookup[] __initdata = {
 	{}
 };
 #endif
-
-#ifdef CONFIG_LEDS
-#define VA_LEDS_BASE (__io_address(VERSATILE_SYS_BASE) + VERSATILE_SYS_LED_OFFSET)
-
-static void versatile_leds_event(led_event_t ledevt)
-{
-	unsigned long flags;
-	u32 val;
-
-	local_irq_save(flags);
-	val = readl(VA_LEDS_BASE);
-
-	switch (ledevt) {
-	case led_idle_start:
-		val = val & ~VERSATILE_SYS_LED0;
-		break;
-
-	case led_idle_end:
-		val = val | VERSATILE_SYS_LED0;
-		break;
-
-	case led_timer:
-		val = val ^ VERSATILE_SYS_LED1;
-		break;
-
-	case led_halted:
-		val = 0;
-		break;
-
-	default:
-		break;
-	}
-
-	writel(val, VA_LEDS_BASE);
-	local_irq_restore(flags);
-}
-#endif	/* CONFIG_LEDS */
 
 void versatile_restart(enum reboot_mode mode, const char *cmd)
 {

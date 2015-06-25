@@ -37,11 +37,19 @@
 #endif
 	.endm
 
-	.macro	alignment_trap, rtemp, label
 #ifdef CONFIG_ALIGNMENT_TRAP
-	ldr	\rtemp, \label
-	ldr	\rtemp, [\rtemp]
-	mcr	p15, 0, \rtemp, c1, c0
+#define ATRAP(x...) x
+#else
+#define ATRAP(x...)
+#endif
+
+	.macro	alignment_trap, rtmp1, rtmp2, label
+#ifdef CONFIG_ALIGNMENT_TRAP
+	mrc	p15, 0, \rtmp2, c1, c0, 0
+	ldr	\rtmp1, \label
+	ldr	\rtmp1, [\rtmp1]
+	teq	\rtmp1, \rtmp2
+	mcrne	p15, 0, \rtmp1, c1, c0, 0
 #endif
 	.endm
 
@@ -216,31 +224,54 @@
 	ldmia	sp, {r0 - pc}^			@ load r0 - pc, cpsr
 	.endm
 
+	@
+	@ svc_exit_via_fiq - like svc_exit but switches to FIQ mode before exit
+	@
+	@ This macro acts in a similar manner to svc_exit but switches to FIQ
+	@ mode to restore the final part of the register state.
+	@
+	@ We cannot use the normal svc_exit procedure because that would
+	@ clobber spsr_svc (FIQ could be delivered during the first few
+	@ instructions of vector_swi meaning its contents have not been
+	@ saved anywhere).
+	@
+	@ Note that, unlike svc_exit, this macro also does not allow a caller
+	@ supplied rpsr. This is because the FIQ exceptions are not re-entrant
+	@ and the handlers cannot call into the scheduler (meaning the value
+	@ on the stack remains correct).
+	@
+	.macro  svc_exit_via_fiq
+	mov	r0, sp
+	ldmib	r0, {r1 - r14}	@ abort is deadly from here onward (it will
+				@ clobber state restored below)
+	msr	cpsr_c, #FIQ_MODE | PSR_I_BIT | PSR_F_BIT
+	add	r8, r0, #S_PC
+	ldr	r9, [r0, #S_PSR]
+	msr	spsr_cxsf, r9
+	ldr	r0, [r0, #S_R0]
+	ldmia	r8, {pc}^
+	.endm
+
 	.macro	restore_user_regs, fast = 0, offset = 0
-	ldr	r1, [sp, #\offset + S_PSR]	@ get calling cpsr
-	ldr	lr, [sp, #\offset + S_PC]!	@ get pc
+	mov	r2, sp
+	ldr	r1, [r2, #\offset + S_PSR]	@ get calling cpsr
+	ldr	lr, [r2, #\offset + S_PC]!	@ get pc
 	msr	spsr_cxsf, r1			@ save in spsr_svc
 #if defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_32v6K)
 	@ We must avoid clrex due to Cortex-A15 erratum #830321
-	strex	r1, r2, [sp]			@ clear the exclusive monitor
+	strex	r1, r2, [r2]			@ clear the exclusive monitor
 #endif
 	.if	\fast
-	ldmdb	sp, {r1 - lr}^			@ get calling r1 - lr
+	ldmdb	r2, {r1 - lr}^			@ get calling r1 - lr
 	.else
-	ldmdb	sp, {r0 - lr}^			@ get calling r0 - lr
+	ldmdb	r2, {r0 - lr}^			@ get calling r0 - lr
 	.endif
 	mov	r0, r0				@ ARMv5T and earlier require a nop
 						@ after ldm {}^
-	add	sp, sp, #S_FRAME_SIZE - S_PC
+	add	sp, sp, #\offset + S_FRAME_SIZE
 	movs	pc, lr				@ return & move spsr_svc into cpsr
 	.endm
 
-	@
-	@ 32-bit wide "mov pc, reg"
-	@
-	.macro	movw_pc, reg
-	mov	pc, \reg
-	.endm
 #else	/* CONFIG_THUMB2_KERNEL */
 	.macro	svc_exit, rpsr, irq = 0
 	.if	\irq != 0
@@ -271,6 +302,25 @@
 	mov	sp, lr
 	ldr	lr, [sp], #4
 	rfeia	sp!
+	.endm
+
+	@
+	@ svc_exit_via_fiq - like svc_exit but switches to FIQ mode before exit
+	@
+	@ For full details see non-Thumb implementation above.
+	@
+	.macro  svc_exit_via_fiq
+	add	r0, sp, #S_R2
+	ldr	lr, [sp, #S_LR]
+	ldr	sp, [sp, #S_SP] @ abort is deadly from here onward (it will
+			        @ clobber state restored below)
+	ldmia	r0, {r2 - r12}
+	mov	r1, #FIQ_MODE | PSR_I_BIT | PSR_F_BIT
+	msr	cpsr_c, r1
+	sub	r0, #S_R2
+	add	r8, r0, #S_PC
+	ldmia	r0, {r0 - r1}
+	rfeia	r8
 	.endm
 
 #ifdef CONFIG_CPU_V7M
@@ -305,14 +355,6 @@
 	movs	pc, lr				@ return & move spsr_svc into cpsr
 	.endm
 #endif	/* ifdef CONFIG_CPU_V7M / else */
-
-	@
-	@ 32-bit wide "mov pc, reg"
-	@
-	.macro	movw_pc, reg
-	mov	pc, \reg
-	nop
-	.endm
 #endif	/* !CONFIG_THUMB2_KERNEL */
 
 /*

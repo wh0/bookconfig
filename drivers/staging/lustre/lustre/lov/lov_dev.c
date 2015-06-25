@@ -41,7 +41,7 @@
 #define DEBUG_SUBSYSTEM S_LOV
 
 /* class_name2obd() */
-#include <obd_class.h>
+#include "../include/obd_class.h"
 
 #include "lov_cl_internal.h"
 #include "lov_internal.h"
@@ -60,7 +60,7 @@ struct kmem_cache *lovsub_req_kmem;
 struct kmem_cache *lov_lock_link_kmem;
 
 /** Lock class of lov_device::ld_mutex. */
-struct lock_class_key cl_lov_device_mutex_class;
+static struct lock_class_key cl_lov_device_mutex_class;
 
 struct lu_kmem_descr lov_caches[] = {
 	{
@@ -453,7 +453,7 @@ static int lov_process_config(const struct lu_env *env,
 		case LCFG_LOV_ADD_INA:
 			rc = lov_cl_add_target(env, d, index);
 			if (rc != 0)
-				lov_del_target(d->ld_obd, index, 0, 0);
+				lov_del_target(d->ld_obd, index, NULL, 0);
 			break;
 		case LCFG_LOV_DEL_OBD:
 			lov_cl_del_target(env, d, index);

@@ -19,6 +19,8 @@
 #include <linux/platform_device.h>
 #include "ahci.h"
 
+#define DRV_NAME "ahci-mvebu"
+
 #define AHCI_VENDOR_SPECIFIC_0_ADDR  0xa0
 #define AHCI_VENDOR_SPECIFIC_0_DATA  0xa4
 
@@ -43,7 +45,7 @@ static void ahci_mvebu_mbus_config(struct ahci_host_priv *hpriv,
 		writel((cs->mbus_attr << 8) |
 		       (dram->mbus_dram_target_id << 4) | 1,
 		       hpriv->mmio + AHCI_WINDOW_CTRL(i));
-		writel(cs->base, hpriv->mmio + AHCI_WINDOW_BASE(i));
+		writel(cs->base >> 16, hpriv->mmio + AHCI_WINDOW_BASE(i));
 		writel(((cs->size - 1) & 0xffff0000),
 		       hpriv->mmio + AHCI_WINDOW_SIZE(i));
 	}
@@ -65,6 +67,10 @@ static const struct ata_port_info ahci_mvebu_port_info = {
 	.pio_mask  = ATA_PIO4,
 	.udma_mask = ATA_UDMA6,
 	.port_ops  = &ahci_platform_ops,
+};
+
+static struct scsi_host_template ahci_platform_sht = {
+	AHCI_SHT(DRV_NAME),
 };
 
 static int ahci_mvebu_probe(struct platform_device *pdev)
@@ -89,7 +95,7 @@ static int ahci_mvebu_probe(struct platform_device *pdev)
 	ahci_mvebu_regret_option(hpriv);
 
 	rc = ahci_platform_init_host(pdev, hpriv, &ahci_mvebu_port_info,
-				     0, 0, 0);
+				     &ahci_platform_sht);
 	if (rc)
 		goto disable_resources;
 
@@ -115,8 +121,7 @@ static struct platform_driver ahci_mvebu_driver = {
 	.probe = ahci_mvebu_probe,
 	.remove = ata_platform_remove_one,
 	.driver = {
-		.name = "ahci-mvebu",
-		.owner = THIS_MODULE,
+		.name = DRV_NAME,
 		.of_match_table = ahci_mvebu_of_match,
 	},
 };

@@ -56,6 +56,8 @@ struct svc_export {
 	struct nfsd4_fs_locations ex_fslocs;
 	uint32_t		ex_nflavors;
 	struct exp_flavor_info	ex_flavors[MAX_SECINFO_LIST];
+	enum pnfs_layouttype	ex_layout_type;
+	struct nfsd4_deviceid_map *ex_devid_map;
 	struct cache_detail	*cd;
 };
 
@@ -101,9 +103,10 @@ static inline void exp_put(struct svc_export *exp)
 	cache_put(&exp->h, exp->cd);
 }
 
-static inline void exp_get(struct svc_export *exp)
+static inline struct svc_export *exp_get(struct svc_export *exp)
 {
 	cache_get(&exp->h);
+	return exp;
 }
 struct svc_export * rqst_exp_find(struct svc_rqst *, int, u32 *);
 

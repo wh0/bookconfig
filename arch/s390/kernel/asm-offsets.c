@@ -9,7 +9,7 @@
 #include <linux/kbuild.h>
 #include <linux/kvm_host.h>
 #include <linux/sched.h>
-#include <asm/cputime.h>
+#include <asm/idle.h>
 #include <asm/vdso.h>
 #include <asm/pgtable.h>
 
@@ -17,8 +17,8 @@
  * Make sure that the compiler is new enough. We want a compiler that
  * is known to work with the "Q" assembler constraint.
  */
-#if __GNUC__ < 3 || (__GNUC__ == 3 && __GNUC_MINOR__ < 3)
-#error Your compiler is too old; please use version 3.3.3 or newer
+#if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 3)
+#error Your compiler is too old; please use version 4.3 or newer
 #endif
 
 int main(void)
@@ -34,7 +34,6 @@ int main(void)
 	DEFINE(__THREAD_per_paid, offsetof(struct task_struct, thread.per_event.paid));
 	BLANK();
 	DEFINE(__TI_task, offsetof(struct thread_info, task));
-	DEFINE(__TI_domain, offsetof(struct thread_info, exec_domain));
 	DEFINE(__TI_flags, offsetof(struct thread_info, flags));
 	DEFINE(__TI_sysc_table, offsetof(struct thread_info, sys_call_table));
 	DEFINE(__TI_cpu, offsetof(struct thread_info, cpu));
@@ -62,8 +61,12 @@ int main(void)
 	DEFINE(__VDSO_XTIME_STAMP, offsetof(struct vdso_data, xtime_tod_stamp));
 	DEFINE(__VDSO_XTIME_SEC, offsetof(struct vdso_data, xtime_clock_sec));
 	DEFINE(__VDSO_XTIME_NSEC, offsetof(struct vdso_data, xtime_clock_nsec));
+	DEFINE(__VDSO_XTIME_CRS_SEC, offsetof(struct vdso_data, xtime_coarse_sec));
+	DEFINE(__VDSO_XTIME_CRS_NSEC, offsetof(struct vdso_data, xtime_coarse_nsec));
 	DEFINE(__VDSO_WTOM_SEC, offsetof(struct vdso_data, wtom_clock_sec));
 	DEFINE(__VDSO_WTOM_NSEC, offsetof(struct vdso_data, wtom_clock_nsec));
+	DEFINE(__VDSO_WTOM_CRS_SEC, offsetof(struct vdso_data, wtom_coarse_sec));
+	DEFINE(__VDSO_WTOM_CRS_NSEC, offsetof(struct vdso_data, wtom_coarse_nsec));
 	DEFINE(__VDSO_TIMEZONE, offsetof(struct vdso_data, tz_minuteswest));
 	DEFINE(__VDSO_ECTG_OK, offsetof(struct vdso_data, ectg_available));
 	DEFINE(__VDSO_TK_MULT, offsetof(struct vdso_data, tk_mult));
@@ -73,8 +76,11 @@ int main(void)
 	/* constants used by the vdso */
 	DEFINE(__CLOCK_REALTIME, CLOCK_REALTIME);
 	DEFINE(__CLOCK_MONOTONIC, CLOCK_MONOTONIC);
+	DEFINE(__CLOCK_REALTIME_COARSE, CLOCK_REALTIME_COARSE);
+	DEFINE(__CLOCK_MONOTONIC_COARSE, CLOCK_MONOTONIC_COARSE);
 	DEFINE(__CLOCK_THREAD_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID);
 	DEFINE(__CLOCK_REALTIME_RES, MONOTONIC_RES_NSEC);
+	DEFINE(__CLOCK_COARSE_RES, LOW_RES_NSEC);
 	BLANK();
 	/* idle data offsets */
 	DEFINE(__CLOCK_IDLE_ENTER, offsetof(struct s390_idle_data, clock_idle_enter));
@@ -149,7 +155,6 @@ int main(void)
 	DEFINE(__LC_INT_CLOCK, offsetof(struct _lowcore, int_clock));
 	DEFINE(__LC_MCCK_CLOCK, offsetof(struct _lowcore, mcck_clock));
 	DEFINE(__LC_MACHINE_FLAGS, offsetof(struct _lowcore, machine_flags));
-	DEFINE(__LC_FTRACE_FUNC, offsetof(struct _lowcore, ftrace_func));
 	DEFINE(__LC_DUMP_REIPL, offsetof(struct _lowcore, ipib));
 	BLANK();
 	DEFINE(__LC_CPU_TIMER_SAVE_AREA, offsetof(struct _lowcore, cpu_timer_save_area));
@@ -160,11 +165,9 @@ int main(void)
 	DEFINE(__LC_FPREGS_SAVE_AREA, offsetof(struct _lowcore, floating_pt_save_area));
 	DEFINE(__LC_GPREGS_SAVE_AREA, offsetof(struct _lowcore, gpregs_save_area));
 	DEFINE(__LC_CREGS_SAVE_AREA, offsetof(struct _lowcore, cregs_save_area));
-#ifdef CONFIG_32BIT
-	DEFINE(SAVE_AREA_BASE, offsetof(struct _lowcore, extended_save_area_addr));
-#else /* CONFIG_32BIT */
 	DEFINE(__LC_DATA_EXC_CODE, offsetof(struct _lowcore, data_exc_code));
 	DEFINE(__LC_MCCK_FAIL_STOR_ADDR, offsetof(struct _lowcore, failing_storage_address));
+	DEFINE(__LC_VX_SAVE_AREA_ADDR, offsetof(struct _lowcore, vector_save_area_addr));
 	DEFINE(__LC_EXT_PARAMS2, offsetof(struct _lowcore, ext_params2));
 	DEFINE(SAVE_AREA_BASE, offsetof(struct _lowcore, floating_pt_save_area));
 	DEFINE(__LC_PASTE, offsetof(struct _lowcore, paste));
@@ -177,6 +180,5 @@ int main(void)
 	DEFINE(__GMAP_ASCE, offsetof(struct gmap, asce));
 	DEFINE(__SIE_PROG0C, offsetof(struct kvm_s390_sie_block, prog0c));
 	DEFINE(__SIE_PROG20, offsetof(struct kvm_s390_sie_block, prog20));
-#endif /* CONFIG_32BIT */
 	return 0;
 }

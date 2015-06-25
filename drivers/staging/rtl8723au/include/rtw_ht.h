@@ -19,10 +19,9 @@
 #include "linux/ieee80211.h"
 #include "wifi.h"
 
-struct ht_priv
-{
-	u32	ht_option;
-	u32	ampdu_enable;/* for enable Tx A-MPDU */
+struct ht_priv {
+	bool	ht_option;
+	bool	ampdu_enable;/* for enable Tx A-MPDU */
 	/* u8	baddbareq_issued[16]; */
 	u32	tx_amsdu_enable;/* for enable Tx A-MSDU */
 	u32	tx_amdsu_maxlen; /*  1: 8k, 0:4k ; default:8k, for tx */

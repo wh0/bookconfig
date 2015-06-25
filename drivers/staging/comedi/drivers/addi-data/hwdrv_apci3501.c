@@ -93,7 +93,6 @@ static int apci3501_write_insn_timer(struct comedi_device *dev,
 {
 	struct apci3501_private *devpriv = dev->private;
 	unsigned int ul_Command1 = 0;
-	int i_Temp;
 
 	if (devpriv->b_TimerSelectMode == ADDIDATA_WATCHDOG) {
 
@@ -135,7 +134,7 @@ static int apci3501_write_insn_timer(struct comedi_device *dev,
 		}
 	}
 
-	i_Temp = inl(dev->iobase + APCI3501_TIMER_STATUS_REG) & 0x1;
+	inl(dev->iobase + APCI3501_TIMER_STATUS_REG);
 	return insn->n;
 }
 
@@ -168,7 +167,7 @@ static int apci3501_read_insn_timer(struct comedi_device *dev,
 
 	else if ((devpriv->b_TimerSelectMode != ADDIDATA_TIMER)
 		&& (devpriv->b_TimerSelectMode != ADDIDATA_WATCHDOG)) {
-		printk("\nIn ReadTimerCounterWatchdog :: Invalid Subdevice \n");
+		dev_err(dev->class_dev, "Invalid subdevice.\n");
 	}
 	return insn->n;
 }

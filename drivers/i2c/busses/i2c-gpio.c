@@ -238,12 +238,10 @@ static int i2c_gpio_probe(struct platform_device *pdev)
 static int i2c_gpio_remove(struct platform_device *pdev)
 {
 	struct i2c_gpio_private_data *priv;
-	struct i2c_gpio_platform_data *pdata;
 	struct i2c_adapter *adap;
 
 	priv = platform_get_drvdata(pdev);
 	adap = &priv->adap;
-	pdata = &priv->pdata;
 
 	i2c_del_adapter(adap);
 
@@ -262,7 +260,6 @@ MODULE_DEVICE_TABLE(of, i2c_gpio_dt_ids);
 static struct platform_driver i2c_gpio_driver = {
 	.driver		= {
 		.name	= "i2c-gpio",
-		.owner	= THIS_MODULE,
 		.of_match_table	= of_match_ptr(i2c_gpio_dt_ids),
 	},
 	.probe		= i2c_gpio_probe,

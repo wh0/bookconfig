@@ -30,6 +30,18 @@ static int perf_trace_event_perm(struct ftrace_event_call *tp_event,
 			return ret;
 	}
 
+	/*
+	 * We checked and allowed to create parent,
+	 * allow children without checking.
+	 */
+	if (p_event->parent)
+		return 0;
+
+	/*
+	 * It's ok to check current process (owner) permissions in here,
+	 * because code below is called only via perf_event_open syscall.
+	 */
+
 	/* The ftrace function trace is allowed only for root. */
 	if (ftrace_event_is_function(tp_event)) {
 		if (perf_paranoid_tracepoint_raw() && !capable(CAP_SYS_ADMIN))
@@ -249,7 +261,7 @@ void perf_trace_del(struct perf_event *p_event, int flags)
 }
 
 void *perf_trace_buf_prepare(int size, unsigned short type,
-			     struct pt_regs *regs, int *rctxp)
+			     struct pt_regs **regs, int *rctxp)
 {
 	struct trace_entry *entry;
 	unsigned long flags;
@@ -268,6 +280,8 @@ void *perf_trace_buf_prepare(int size, unsigned short type,
 	if (*rctxp < 0)
 		return NULL;
 
+	if (regs)
+		*regs = this_cpu_ptr(&__perf_regs[*rctxp]);
 	raw_data = this_cpu_ptr(perf_trace_buf[*rctxp]);
 
 	/* zero the dead bytes from align to not leak stack to user */

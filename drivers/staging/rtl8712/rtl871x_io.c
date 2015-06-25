@@ -93,7 +93,7 @@ static uint register_intf_hdl(u8 *dev, struct intf_hdl *pintfhdl)
 	pintfhdl->intf_option = 0;
 	pintfhdl->adapter = dev;
 	pintfhdl->intf_dev = (u8 *)&(adapter->dvobjpriv);
-	if (_init_intf_hdl(adapter, pintfhdl) == false)
+	if (!_init_intf_hdl(adapter, pintfhdl))
 		goto register_intf_hdl_fail;
 	return _SUCCESS;
 register_intf_hdl_fail:
@@ -112,16 +112,16 @@ uint r8712_alloc_io_queue(struct _adapter *adapter)
 	struct io_queue *pio_queue;
 	struct io_req *pio_req;
 
-	pio_queue = kmalloc(sizeof(struct io_queue), GFP_ATOMIC);
+	pio_queue = kmalloc(sizeof(*pio_queue), GFP_ATOMIC);
 	if (pio_queue == NULL)
 		goto alloc_io_queue_fail;
-	_init_listhead(&pio_queue->free_ioreqs);
-	_init_listhead(&pio_queue->processing);
-	_init_listhead(&pio_queue->pending);
+	INIT_LIST_HEAD(&pio_queue->free_ioreqs);
+	INIT_LIST_HEAD(&pio_queue->processing);
+	INIT_LIST_HEAD(&pio_queue->pending);
 	spin_lock_init(&pio_queue->lock);
 	pio_queue->pallocated_free_ioreqs_buf = kmalloc(NUM_IOREQ *
-							(sizeof(struct io_req)) + 4,
-							GFP_ATOMIC);
+						(sizeof(struct io_req)) + 4,
+						GFP_ATOMIC);
 	if ((pio_queue->pallocated_free_ioreqs_buf) == NULL)
 		goto alloc_io_queue_fail;
 	memset(pio_queue->pallocated_free_ioreqs_buf, 0,
@@ -131,8 +131,8 @@ uint r8712_alloc_io_queue(struct _adapter *adapter)
 			& 3);
 	pio_req = (struct io_req *)(pio_queue->free_ioreqs_buf);
 	for (i = 0; i < NUM_IOREQ; i++) {
-		_init_listhead(&pio_req->list);
-		list_insert_tail(&pio_req->list, &pio_queue->free_ioreqs);
+		INIT_LIST_HEAD(&pio_req->list);
+		list_add_tail(&pio_req->list, &pio_queue->free_ioreqs);
 		pio_req++;
 	}
 	if ((register_intf_hdl((u8 *)adapter, &(pio_queue->intf))) == _FAIL)
@@ -142,7 +142,7 @@ uint r8712_alloc_io_queue(struct _adapter *adapter)
 alloc_io_queue_fail:
 	if (pio_queue) {
 		kfree(pio_queue->pallocated_free_ioreqs_buf);
-		kfree((u8 *)pio_queue);
+		kfree(pio_queue);
 	}
 	adapter->pio_queue = NULL;
 	return _FAIL;
@@ -156,6 +156,6 @@ void r8712_free_io_queue(struct _adapter *adapter)
 		kfree(pio_queue->pallocated_free_ioreqs_buf);
 		adapter->pio_queue = NULL;
 		unregister_intf_hdl(&pio_queue->intf);
-		kfree((u8 *)pio_queue);
+		kfree(pio_queue);
 	}
 }

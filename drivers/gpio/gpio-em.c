@@ -103,7 +103,7 @@ static int em_gio_irq_reqres(struct irq_data *d)
 {
 	struct em_gio_priv *p = irq_data_get_irq_chip_data(d);
 
-	if (gpio_lock_as_irq(&p->gpio_chip, irqd_to_hwirq(d))) {
+	if (gpiochip_lock_as_irq(&p->gpio_chip, irqd_to_hwirq(d))) {
 		dev_err(p->gpio_chip.dev,
 			"unable to lock HW IRQ %lu for IRQ\n",
 			irqd_to_hwirq(d));
@@ -116,7 +116,7 @@ static void em_gio_irq_relres(struct irq_data *d)
 {
 	struct em_gio_priv *p = irq_data_get_irq_chip_data(d);
 
-	gpio_unlock_as_irq(&p->gpio_chip, irqd_to_hwirq(d));
+	gpiochip_unlock_as_irq(&p->gpio_chip, irqd_to_hwirq(d));
 }
 
 
@@ -330,12 +330,7 @@ static int em_gio_probe(struct platform_device *pdev)
 			goto err0;
 		}
 
-		ret = of_alias_get_id(pdev->dev.of_node, "gpio");
-		if (ret < 0) {
-			dev_err(&pdev->dev, "Couldn't get OF id\n");
-			goto err0;
-		}
-		pdata->gpio_base = ret * 32; /* 32 GPIOs per instance */
+		pdata->gpio_base = -1;
 	}
 
 	gpio_chip = &p->gpio_chip;
@@ -409,11 +404,8 @@ err0:
 static int em_gio_remove(struct platform_device *pdev)
 {
 	struct em_gio_priv *p = platform_get_drvdata(pdev);
-	int ret;
 
-	ret = gpiochip_remove(&p->gpio_chip);
-	if (ret)
-		return ret;
+	gpiochip_remove(&p->gpio_chip);
 
 	irq_domain_remove(p->irq_domain);
 	return 0;
@@ -431,7 +423,6 @@ static struct platform_driver em_gio_device_driver = {
 	.driver		= {
 		.name	= "em_gio",
 		.of_match_table = em_gio_dt_ids,
-		.owner		= THIS_MODULE,
 	}
 };
 

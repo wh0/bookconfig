@@ -5,8 +5,8 @@
  *   Jan Glauber <jang@linux.vnet.ibm.com>
  */
 
-#define COMPONENT "zPCI"
-#define pr_fmt(fmt) COMPONENT ": " fmt
+#define KMSG_COMPONENT "zpci"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -62,6 +62,7 @@ static void clp_store_query_pci_fngrp(struct zpci_dev *zdev,
 	zdev->tlb_refresh = response->refresh;
 	zdev->dma_mask = response->dasm;
 	zdev->msi_addr = response->msia;
+	zdev->max_msi = response->noi;
 	zdev->fmb_update = response->mui;
 
 	switch (response->version) {

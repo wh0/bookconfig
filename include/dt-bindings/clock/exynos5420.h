@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Samsung Electronics Co., Ltd.
- * Author: Andrzej Haja <a.hajda@samsung.com>
+ * Author: Andrzej Hajda <a.hajda@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -204,6 +204,12 @@
 #define CLK_MOUT_MAUDIO0	643
 #define CLK_MOUT_USER_ACLK333	644
 #define CLK_MOUT_SW_ACLK333	645
+#define CLK_MOUT_USER_ACLK200_DISP1	646
+#define CLK_MOUT_SW_ACLK200	647
+#define CLK_MOUT_USER_ACLK300_DISP1     648
+#define CLK_MOUT_SW_ACLK300     649
+#define CLK_MOUT_USER_ACLK400_DISP1     650
+#define CLK_MOUT_SW_ACLK400     651
 
 /* divider clocks */
 #define CLK_DOUT_PIXEL		768

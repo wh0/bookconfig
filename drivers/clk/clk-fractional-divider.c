@@ -36,7 +36,10 @@ static unsigned long clk_fd_recalc_rate(struct clk_hw *hw,
 	m = (val & fd->mmask) >> fd->mshift;
 	n = (val & fd->nmask) >> fd->nshift;
 
-	ret = parent_rate * m;
+	if (!n || !m)
+		return parent_rate;
+
+	ret = (u64)parent_rate * m;
 	do_div(ret, n);
 
 	return ret;

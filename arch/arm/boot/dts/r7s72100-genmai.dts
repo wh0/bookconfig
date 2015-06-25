@@ -21,7 +21,8 @@
 	};
 
 	chosen {
-		bootargs = "console=ttySC2,115200 ignore_loglevel rw root=/dev/nfs ip=dhcp";
+		bootargs = "ignore_loglevel rw root=/dev/nfs ip=dhcp";
+		stdout-path = &scif2;
 	};
 
 	memory {
@@ -43,6 +44,10 @@
 	clock-frequency = <48000000>;
 };
 
+&mtu2 {
+	status = "okay";
+};
+
 &i2c2 {
 	status = "okay";
 	clock-frequency = <400000>;
@@ -56,4 +61,14 @@
 
 &scif2 {
 	status = "okay";
+};
+
+&spi4 {
+	status = "okay";
+
+	codec: codec@0 {
+		compatible = "wlf,wm8978";
+		reg = <0>;
+		spi-max-frequency = <5000000>;
+	};
 };

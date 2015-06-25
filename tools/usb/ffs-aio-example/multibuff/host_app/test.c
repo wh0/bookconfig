@@ -1,3 +1,30 @@
+/*
+ * This is free and unencumbered software released into the public domain.
+ *
+ * Anyone is free to copy, modify, publish, use, compile, sell, or
+ * distribute this software, either in source code form or as a compiled
+ * binary, for any purpose, commercial or non-commercial, and by any
+ * means.
+ *
+ * In jurisdictions that recognize copyright laws, the author or authors
+ * of this software dedicate any and all copyright interest in the
+ * software to the public domain. We make this dedication for the benefit
+ * of the public at large and to the detriment of our heirs and
+ * successors. We intend this dedication to be an overt act of
+ * relinquishment in perpetuity of all present and future rights to this
+ * software under copyright law.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+ * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * For more information, please refer to <http://unlicense.org/>
+ */
+
 #include <libusb.h>
 #include <stdio.h>
 #include <string.h>
@@ -5,11 +32,6 @@
 
 #define VENDOR	0x1d6b
 #define PRODUCT	0x0105
-
-/* endpoints indexes */
-
-#define EP_BULK_IN	(1 | LIBUSB_ENDPOINT_IN)
-#define EP_BULK_OUT	(2 | LIBUSB_ENDPOINT_OUT)
 
 #define BUF_LEN		8192
 
@@ -132,14 +154,21 @@ void test_exit(struct test_state *state)
 int main(void)
 {
 	struct test_state state;
+	struct libusb_config_descriptor *conf;
+	struct libusb_interface_descriptor const *iface;
+	unsigned char addr;
 
 	if (test_init(&state))
 		return 1;
 
+	libusb_get_config_descriptor(state.found, 0, &conf);
+	iface = &conf->interface[0].altsetting[0];
+	addr = iface->endpoint[0].bEndpointAddress;
+
 	while (1) {
 		static unsigned char buffer[BUF_LEN];
 		int bytes;
-		libusb_bulk_transfer(state.handle, EP_BULK_IN, buffer, BUF_LEN,
+		libusb_bulk_transfer(state.handle, addr, buffer, BUF_LEN,
 				     &bytes, 500);
 	}
 	test_exit(&state);

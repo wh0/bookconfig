@@ -224,6 +224,16 @@
 #define TEGRA_PIN_OWR				_PIN(5)
 #define TEGRA_PIN_CLK_32K_IN			_PIN(6)
 #define TEGRA_PIN_JTAG_RTCK			_PIN(7)
+#define TEGRA_PIN_DSI_B_CLK_P			_PIN(8)
+#define TEGRA_PIN_DSI_B_CLK_N			_PIN(9)
+#define TEGRA_PIN_DSI_B_D0_P			_PIN(10)
+#define TEGRA_PIN_DSI_B_D0_N			_PIN(11)
+#define TEGRA_PIN_DSI_B_D1_P			_PIN(12)
+#define TEGRA_PIN_DSI_B_D1_N			_PIN(13)
+#define TEGRA_PIN_DSI_B_D2_P			_PIN(14)
+#define TEGRA_PIN_DSI_B_D2_N			_PIN(15)
+#define TEGRA_PIN_DSI_B_D3_P			_PIN(16)
+#define TEGRA_PIN_DSI_B_D3_N			_PIN(17)
 
 static const struct pinctrl_pin_desc tegra124_pins[] = {
 	PINCTRL_PIN(TEGRA_PIN_CLK_32K_OUT_PA0, "CLK_32K_OUT PA0"),
@@ -417,6 +427,16 @@ static const struct pinctrl_pin_desc tegra124_pins[] = {
 	PINCTRL_PIN(TEGRA_PIN_OWR, "OWR"),
 	PINCTRL_PIN(TEGRA_PIN_CLK_32K_IN, "CLK_32K_IN"),
 	PINCTRL_PIN(TEGRA_PIN_JTAG_RTCK, "JTAG_RTCK"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_CLK_P, "DSI_B_CLK_P"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_CLK_N, "DSI_B_CLK_N"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D0_P, "DSI_B_D0_P"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D0_N, "DSI_B_D0_N"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D1_P, "DSI_B_D1_P"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D1_N, "DSI_B_D1_N"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D2_P, "DSI_B_D2_P"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D2_N, "DSI_B_D2_N"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D3_P, "DSI_B_D3_P"),
+	PINCTRL_PIN(TEGRA_PIN_DSI_B_D3_N, "DSI_B_D3_N"),
 };
 
 static const unsigned clk_32k_out_pa0_pins[] = {
@@ -1495,6 +1515,19 @@ static const unsigned drive_ao4_pins[] = {
 	TEGRA_PIN_JTAG_RTCK,
 };
 
+static const unsigned mipi_pad_ctrl_dsi_b_pins[] = {
+	TEGRA_PIN_DSI_B_CLK_P,
+	TEGRA_PIN_DSI_B_CLK_N,
+	TEGRA_PIN_DSI_B_D0_P,
+	TEGRA_PIN_DSI_B_D0_N,
+	TEGRA_PIN_DSI_B_D1_P,
+	TEGRA_PIN_DSI_B_D1_N,
+	TEGRA_PIN_DSI_B_D2_P,
+	TEGRA_PIN_DSI_B_D2_N,
+	TEGRA_PIN_DSI_B_D3_P,
+	TEGRA_PIN_DSI_B_D3_N,
+};
+
 enum tegra_mux {
 	TEGRA_MUX_BLINK,
 	TEGRA_MUX_CCLA,
@@ -1503,6 +1536,7 @@ enum tegra_mux {
 	TEGRA_MUX_CLK,
 	TEGRA_MUX_CLK12,
 	TEGRA_MUX_CPU,
+	TEGRA_MUX_CSI,
 	TEGRA_MUX_DAP,
 	TEGRA_MUX_DAP1,
 	TEGRA_MUX_DAP2,
@@ -1511,6 +1545,7 @@ enum tegra_mux {
 	TEGRA_MUX_DISPLAYA_ALT,
 	TEGRA_MUX_DISPLAYB,
 	TEGRA_MUX_DP,
+	TEGRA_MUX_DSI_B,
 	TEGRA_MUX_DTV,
 	TEGRA_MUX_EXTPERIPH1,
 	TEGRA_MUX_EXTPERIPH2,
@@ -1595,6 +1630,7 @@ static struct tegra_function tegra124_functions[] = {
 	FUNCTION(clk),
 	FUNCTION(clk12),
 	FUNCTION(cpu),
+	FUNCTION(csi),
 	FUNCTION(dap),
 	FUNCTION(dap1),
 	FUNCTION(dap2),
@@ -1603,6 +1639,7 @@ static struct tegra_function tegra124_functions[] = {
 	FUNCTION(displaya_alt),
 	FUNCTION(displayb),
 	FUNCTION(dp),
+	FUNCTION(dsi_b),
 	FUNCTION(dtv),
 	FUNCTION(extperiph1),
 	FUNCTION(extperiph2),
@@ -1676,8 +1713,11 @@ static struct tegra_function tegra124_functions[] = {
 
 #define DRV_PINGROUP_REG_A		0x868	/* bank 0 */
 #define PINGROUP_REG_A			0x3000	/* bank 1 */
+#define MIPI_PAD_CTRL_PINGROUP_REG_A	0x820	/* bank 2 */
 
+#define DRV_PINGROUP_REG(r)		((r) - DRV_PINGROUP_REG_A)
 #define PINGROUP_REG(r)			((r) - PINGROUP_REG_A)
+#define MIPI_PAD_CTRL_PINGROUP_REG_Y(r)	((r) - MIPI_PAD_CTRL_PINGROUP_REG_A)
 
 #define PINGROUP_BIT_Y(b)		(b)
 #define PINGROUP_BIT_N(b)		(-1)
@@ -1702,20 +1742,17 @@ static struct tegra_function tegra124_functions[] = {
 		.tri_reg = PINGROUP_REG(r),				\
 		.tri_bank = 1,						\
 		.tri_bit = 4,						\
-		.einput_bit = PINGROUP_BIT_Y(5),			\
+		.einput_bit = 5,					\
 		.odrain_bit = PINGROUP_BIT_##od(6),			\
-		.lock_bit = PINGROUP_BIT_Y(7),				\
+		.lock_bit = 7,						\
 		.ioreset_bit = PINGROUP_BIT_##ior(8),			\
 		.rcv_sel_bit = PINGROUP_BIT_##rcv_sel(9),		\
 		.drv_reg = -1,						\
 	}
 
-#define DRV_PINGROUP_REG(r)		((r) - DRV_PINGROUP_REG_A)
-
-#define DRV_PINGROUP(pg_name, r, hsm_b, schmitt_b, lpmd_b,		\
-		     drvdn_b, drvdn_w, drvup_b, drvup_w,		\
-		     slwr_b, slwr_w, slwf_b, slwf_w,			\
-		     drvtype)						\
+#define DRV_PINGROUP(pg_name, r, hsm_b, schmitt_b, lpmd_b, drvdn_b,	\
+		     drvdn_w, drvup_b, drvup_w, slwr_b, slwr_w,		\
+		     slwf_b, slwf_w, drvtype)				\
 	{								\
 		.name = "drive_" #pg_name,				\
 		.pins = drive_##pg_name##_pins,				\
@@ -1742,6 +1779,30 @@ static struct tegra_function tegra124_functions[] = {
 		.slwf_bit = slwf_b,					\
 		.slwf_width = slwf_w,					\
 		.drvtype_bit = PINGROUP_BIT_##drvtype(6),		\
+	}
+
+#define MIPI_PAD_CTRL_PINGROUP(pg_name, r, b, f0, f1)			\
+	{								\
+		.name = "mipi_pad_ctrl_" #pg_name,			\
+		.pins = mipi_pad_ctrl_##pg_name##_pins,			\
+		.npins = ARRAY_SIZE(mipi_pad_ctrl_##pg_name##_pins),	\
+		.funcs = {						\
+			TEGRA_MUX_ ## f0,				\
+			TEGRA_MUX_ ## f1,				\
+			TEGRA_MUX_RSVD3,				\
+			TEGRA_MUX_RSVD4,				\
+		},							\
+		.mux_reg = MIPI_PAD_CTRL_PINGROUP_REG_Y(r),		\
+		.mux_bank = 2,						\
+		.mux_bit = b,						\
+		.pupd_reg = -1,						\
+		.tri_reg = -1,						\
+		.einput_bit = -1,					\
+		.odrain_bit = -1,					\
+		.lock_bit = -1,						\
+		.ioreset_bit = -1,					\
+		.rcv_sel_bit = -1,					\
+		.drv_reg = -1,						\
 	}
 
 static const struct tegra_pingroup tegra124_groups[] = {
@@ -1979,6 +2040,9 @@ static const struct tegra_pingroup tegra124_groups[] = {
 	DRV_PINGROUP(hv0,         0x9b4,  2,  3,  4,  12,  5,  -1, -1,  28,  2,  -1, -1,  N),
 	DRV_PINGROUP(sdio4,       0x9c4,  2,  3,  4,  12,  5,  20,  5,  28,  2,  30,  2,  N),
 	DRV_PINGROUP(ao4,         0x9c8,  2,  3,  4,  12,  7,  20,  7,  28,  2,  30,  2,  Y),
+
+	/*                     pg_name, r,     b, f0,  f1 */
+	MIPI_PAD_CTRL_PINGROUP(dsi_b,   0x820, 1, CSI, DSI_B),
 };
 
 static const struct tegra_pinctrl_soc_data tegra124_pinctrl = {
@@ -1989,6 +2053,9 @@ static const struct tegra_pinctrl_soc_data tegra124_pinctrl = {
 	.nfunctions = ARRAY_SIZE(tegra124_functions),
 	.groups = tegra124_groups,
 	.ngroups = ARRAY_SIZE(tegra124_groups),
+	.hsm_in_mux = false,
+	.schmitt_in_mux = false,
+	.drvtype_in_mux = false,
 };
 
 static int tegra124_pinctrl_probe(struct platform_device *pdev)
@@ -1996,7 +2063,7 @@ static int tegra124_pinctrl_probe(struct platform_device *pdev)
 	return tegra_pinctrl_probe(pdev, &tegra124_pinctrl);
 }
 
-static struct of_device_id tegra124_pinctrl_of_match[] = {
+static const struct of_device_id tegra124_pinctrl_of_match[] = {
 	{ .compatible = "nvidia,tegra124-pinmux", },
 	{ },
 };
@@ -2005,7 +2072,6 @@ MODULE_DEVICE_TABLE(of, tegra124_pinctrl_of_match);
 static struct platform_driver tegra124_pinctrl_driver = {
 	.driver = {
 		.name = "tegra124-pinctrl",
-		.owner = THIS_MODULE,
 		.of_match_table = tegra124_pinctrl_of_match,
 	},
 	.probe = tegra124_pinctrl_probe,

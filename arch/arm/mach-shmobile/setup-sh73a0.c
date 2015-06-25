@@ -13,10 +13,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -26,24 +22,28 @@
 #include <linux/of_platform.h>
 #include <linux/delay.h>
 #include <linux/input.h>
+#include <linux/i2c/i2c-sh_mobile.h>
 #include <linux/io.h>
 #include <linux/serial_sci.h>
 #include <linux/sh_dma.h>
-#include <linux/sh_intc.h>
 #include <linux/sh_timer.h>
 #include <linux/platform_data/sh_ipmmu.h>
 #include <linux/platform_data/irq-renesas-intc-irqpin.h>
-#include <mach/dma-register.h>
-#include <mach/irqs.h>
-#include <mach/sh73a0.h>
-#include <mach/common.h>
+
+#include <asm/hardware/cache-l2x0.h>
 #include <asm/mach-types.h>
 #include <asm/mach/map.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/time.h>
 
+#include "common.h"
+#include "dma-register.h"
+#include "intc.h"
+#include "irqs.h"
+#include "sh73a0.h"
+
 static struct map_desc sh73a0_io_desc[] __initdata = {
-	/* create a 1:1 entity map for 0xe6xxxxxx
+	/* create a 1:1 identity mapping for 0xe6xxxxxx
 	 * used by CPGA, INTC and PFC.
 	 */
 	{
@@ -56,6 +56,7 @@ static struct map_desc sh73a0_io_desc[] __initdata = {
 
 void __init sh73a0_map_io(void)
 {
+	debug_ll_io_init();
 	iotable_init(sh73a0_io_desc, ARRAY_SIZE(sh73a0_io_desc));
 }
 
@@ -190,11 +191,18 @@ static struct resource i2c4_resources[] = {
 	},
 };
 
+static struct i2c_sh_mobile_platform_data i2c_platform_data = {
+	.clks_per_count	= 2,
+};
+
 static struct platform_device i2c0_device = {
 	.name		= "i2c-sh_mobile",
 	.id		= 0,
 	.resource	= i2c0_resources,
 	.num_resources	= ARRAY_SIZE(i2c0_resources),
+	.dev		= {
+		.platform_data	= &i2c_platform_data,
+	},
 };
 
 static struct platform_device i2c1_device = {
@@ -202,6 +210,9 @@ static struct platform_device i2c1_device = {
 	.id		= 1,
 	.resource	= i2c1_resources,
 	.num_resources	= ARRAY_SIZE(i2c1_resources),
+	.dev		= {
+		.platform_data	= &i2c_platform_data,
+	},
 };
 
 static struct platform_device i2c2_device = {
@@ -209,6 +220,9 @@ static struct platform_device i2c2_device = {
 	.id		= 2,
 	.resource	= i2c2_resources,
 	.num_resources	= ARRAY_SIZE(i2c2_resources),
+	.dev		= {
+		.platform_data	= &i2c_platform_data,
+	},
 };
 
 static struct platform_device i2c3_device = {
@@ -216,6 +230,9 @@ static struct platform_device i2c3_device = {
 	.id		= 3,
 	.resource	= i2c3_resources,
 	.num_resources	= ARRAY_SIZE(i2c3_resources),
+	.dev		= {
+		.platform_data	= &i2c_platform_data,
+	},
 };
 
 static struct platform_device i2c4_device = {
@@ -223,6 +240,9 @@ static struct platform_device i2c4_device = {
 	.id		= 4,
 	.resource	= i2c4_resources,
 	.num_resources	= ARRAY_SIZE(i2c4_resources),
+	.dev		= {
+		.platform_data	= &i2c_platform_data,
+	},
 };
 
 static const struct sh_dmae_slave_config sh73a0_dmae_slaves[] = {
@@ -544,7 +564,7 @@ static struct resource pmu_resources[] = {
 };
 
 static struct platform_device pmu_device = {
-	.name		= "arm-pmu",
+	.name		= "armv7-pmu",
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(pmu_resources),
 	.resource	= pmu_resources,
@@ -576,6 +596,7 @@ static struct platform_device ipmmu_device = {
 
 static struct renesas_intc_irqpin_config irqpin0_platform_data = {
 	.irq_base = irq_pin(0), /* IRQ0 -> IRQ7 */
+	.control_parent = true,
 };
 
 static struct resource irqpin0_resources[] = {
@@ -637,6 +658,7 @@ static struct platform_device irqpin1_device = {
 
 static struct renesas_intc_irqpin_config irqpin2_platform_data = {
 	.irq_base = irq_pin(16), /* IRQ16 -> IRQ23 */
+	.control_parent = true,
 };
 
 static struct resource irqpin2_resources[] = {
@@ -667,6 +689,7 @@ static struct platform_device irqpin2_device = {
 
 static struct renesas_intc_irqpin_config irqpin3_platform_data = {
 	.irq_base = irq_pin(24), /* IRQ24 -> IRQ31 */
+	.control_parent = true,
 };
 
 static struct resource irqpin3_resources[] = {
@@ -695,7 +718,7 @@ static struct platform_device irqpin3_device = {
 	},
 };
 
-static struct platform_device *sh73a0_devices_dt[] __initdata = {
+static struct platform_device *sh73a0_early_devices[] __initdata = {
 	&scif0_device,
 	&scif1_device,
 	&scif2_device,
@@ -705,12 +728,9 @@ static struct platform_device *sh73a0_devices_dt[] __initdata = {
 	&scif6_device,
 	&scif7_device,
 	&scif8_device,
-	&cmt1_device,
-};
-
-static struct platform_device *sh73a0_early_devices[] __initdata = {
 	&tmu0_device,
 	&ipmmu_device,
+	&cmt1_device,
 };
 
 static struct platform_device *sh73a0_late_devices[] __initdata = {
@@ -735,17 +755,10 @@ void __init sh73a0_add_standard_devices(void)
 	/* Clear software reset bit on SY-DMAC module */
 	__raw_writel(__raw_readl(SRCR2) & ~(1 << 18), SRCR2);
 
-	platform_add_devices(sh73a0_devices_dt,
-			    ARRAY_SIZE(sh73a0_devices_dt));
 	platform_add_devices(sh73a0_early_devices,
 			    ARRAY_SIZE(sh73a0_early_devices));
 	platform_add_devices(sh73a0_late_devices,
 			    ARRAY_SIZE(sh73a0_late_devices));
-}
-
-void __init sh73a0_init_delay(void)
-{
-	shmobile_setup_delay(1196, 44, 46); /* Cortex-A9 @ 1196MHz */
 }
 
 /* do nothing for !CONFIG_SMP or !CONFIG_HAVE_TWD */
@@ -753,16 +766,16 @@ void __init __weak sh73a0_register_twd(void) { }
 
 void __init sh73a0_earlytimer_init(void)
 {
-	sh73a0_init_delay();
+	shmobile_init_delay();
+#ifndef CONFIG_COMMON_CLK
 	sh73a0_clock_init();
+#endif
 	shmobile_earlytimer_init();
 	sh73a0_register_twd();
 }
 
 void __init sh73a0_add_early_devices(void)
 {
-	early_platform_add_devices(sh73a0_devices_dt,
-				   ARRAY_SIZE(sh73a0_devices_dt));
 	early_platform_add_devices(sh73a0_early_devices,
 				   ARRAY_SIZE(sh73a0_early_devices));
 
@@ -772,19 +785,13 @@ void __init sh73a0_add_early_devices(void)
 
 #ifdef CONFIG_USE_OF
 
-void __init sh73a0_add_standard_devices_dt(void)
+static void __init sh73a0_generic_init(void)
 {
-	struct platform_device_info devinfo = { .name = "cpufreq-cpu0", .id = -1, };
-
-	/* clocks are setup late during boot in the case of DT */
-	sh73a0_clock_init();
-
-	platform_add_devices(sh73a0_devices_dt,
-			     ARRAY_SIZE(sh73a0_devices_dt));
+#ifdef CONFIG_CACHE_L2X0
+	/* Shared attribute override enable, 64K*8way */
+	l2x0_init(IOMEM(0xf0100000), 0x00400000, 0xc20f0fff);
+#endif
 	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
-
-	/* Instantiate cpufreq-cpu0 */
-	platform_device_register_full(&devinfo);
 }
 
 static const char *sh73a0_boards_compat_dt[] __initdata = {
@@ -795,9 +802,9 @@ static const char *sh73a0_boards_compat_dt[] __initdata = {
 DT_MACHINE_START(SH73A0_DT, "Generic SH73A0 (Flattened Device Tree)")
 	.smp		= smp_ops(sh73a0_smp_ops),
 	.map_io		= sh73a0_map_io,
-	.init_early	= sh73a0_init_delay,
-	.nr_irqs	= NR_IRQS_LEGACY,
-	.init_machine	= sh73a0_add_standard_devices_dt,
+	.init_early	= shmobile_init_delay,
+	.init_machine	= sh73a0_generic_init,
+	.init_late	= shmobile_init_late,
 	.dt_compat	= sh73a0_boards_compat_dt,
 MACHINE_END
 #endif /* CONFIG_USE_OF */

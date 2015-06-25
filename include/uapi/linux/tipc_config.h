@@ -182,7 +182,7 @@
 
 #define TIPC_MIN_LINK_WIN 16
 #define TIPC_DEF_LINK_WIN 50
-#define TIPC_MAX_LINK_WIN 150
+#define TIPC_MAX_LINK_WIN 8191
 
 
 struct tipc_node_info {
@@ -270,6 +270,26 @@ static inline int TLV_CHECK(const void *tlv, __u16 space, __u16 exp_type)
 {
 	return TLV_OK(tlv, space) &&
 		(ntohs(((struct tlv_desc *)tlv)->tlv_type) == exp_type);
+}
+
+static inline int TLV_GET_LEN(struct tlv_desc *tlv)
+{
+	return ntohs(tlv->tlv_len);
+}
+
+static inline void TLV_SET_LEN(struct tlv_desc *tlv, __u16 len)
+{
+	tlv->tlv_len = htons(len);
+}
+
+static inline int TLV_CHECK_TYPE(struct tlv_desc *tlv,  __u16 type)
+{
+	return (ntohs(tlv->tlv_type) == type);
+}
+
+static inline void TLV_SET_TYPE(struct tlv_desc *tlv, __u16 type)
+{
+	tlv->tlv_type = htons(type);
 }
 
 static inline int TLV_SET(void *tlv, __u16 type, void *data, __u16 len)

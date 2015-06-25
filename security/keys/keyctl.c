@@ -26,6 +26,8 @@
 #include <asm/uaccess.h>
 #include "internal.h"
 
+#define KEY_MAX_DESC_SIZE 4096
+
 static int key_get_type_from_user(char *type,
 				  const char __user *_type,
 				  unsigned len)
@@ -78,7 +80,7 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 
 	description = NULL;
 	if (_description) {
-		description = strndup_user(_description, PAGE_SIZE);
+		description = strndup_user(_description, KEY_MAX_DESC_SIZE);
 		if (IS_ERR(description)) {
 			ret = PTR_ERR(description);
 			goto error;
@@ -86,6 +88,10 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 		if (!*description) {
 			kfree(description);
 			description = NULL;
+		} else if ((description[0] == '.') &&
+			   (strncmp(type, "keyring", 7) == 0)) {
+			ret = -EPERM;
+			goto error2;
 		}
 	}
 
@@ -173,7 +179,7 @@ SYSCALL_DEFINE4(request_key, const char __user *, _type,
 		goto error;
 
 	/* pull the description into kernel space */
-	description = strndup_user(_description, PAGE_SIZE);
+	description = strndup_user(_description, KEY_MAX_DESC_SIZE);
 	if (IS_ERR(description)) {
 		ret = PTR_ERR(description);
 		goto error;
@@ -283,7 +289,7 @@ long keyctl_join_session_keyring(const char __user *_name)
 	/* fetch the name from userspace */
 	name = NULL;
 	if (_name) {
-		name = strndup_user(_name, PAGE_SIZE);
+		name = strndup_user(_name, KEY_MAX_DESC_SIZE);
 		if (IS_ERR(name)) {
 			ret = PTR_ERR(name);
 			goto error;
@@ -404,12 +410,25 @@ long keyctl_invalidate_key(key_serial_t id)
 	key_ref = lookup_user_key(id, 0, KEY_NEED_SEARCH);
 	if (IS_ERR(key_ref)) {
 		ret = PTR_ERR(key_ref);
+
+		/* Root is permitted to invalidate certain special keys */
+		if (capable(CAP_SYS_ADMIN)) {
+			key_ref = lookup_user_key(id, 0, 0);
+			if (IS_ERR(key_ref))
+				goto error;
+			if (test_bit(KEY_FLAG_ROOT_CAN_INVAL,
+				     &key_ref_to_ptr(key_ref)->flags))
+				goto invalidate;
+			goto error_put;
+		}
+
 		goto error;
 	}
 
+invalidate:
 	key_invalidate(key_ref_to_ptr(key_ref));
 	ret = 0;
-
+error_put:
 	key_ref_put(key_ref);
 error:
 	kleave(" = %ld", ret);
@@ -545,8 +564,9 @@ long keyctl_describe_key(key_serial_t keyid,
 {
 	struct key *key, *instkey;
 	key_ref_t key_ref;
-	char *tmpbuf;
+	char *infobuf;
 	long ret;
+	int desclen, infolen;
 
 	key_ref = lookup_user_key(keyid, KEY_LOOKUP_PARTIAL, KEY_NEED_VIEW);
 	if (IS_ERR(key_ref)) {
@@ -569,38 +589,31 @@ long keyctl_describe_key(key_serial_t keyid,
 	}
 
 okay:
-	/* calculate how much description we're going to return */
-	ret = -ENOMEM;
-	tmpbuf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-	if (!tmpbuf)
-		goto error2;
-
 	key = key_ref_to_ptr(key_ref);
+	desclen = strlen(key->description);
 
-	ret = snprintf(tmpbuf, PAGE_SIZE - 1,
-		       "%s;%d;%d;%08x;%s",
-		       key->type->name,
-		       from_kuid_munged(current_user_ns(), key->uid),
-		       from_kgid_munged(current_user_ns(), key->gid),
-		       key->perm,
-		       key->description ?: "");
-
-	/* include a NUL char at the end of the data */
-	if (ret > PAGE_SIZE - 1)
-		ret = PAGE_SIZE - 1;
-	tmpbuf[ret] = 0;
-	ret++;
+	/* calculate how much information we're going to return */
+	ret = -ENOMEM;
+	infobuf = kasprintf(GFP_KERNEL,
+			    "%s;%d;%d;%08x;",
+			    key->type->name,
+			    from_kuid_munged(current_user_ns(), key->uid),
+			    from_kgid_munged(current_user_ns(), key->gid),
+			    key->perm);
+	if (!infobuf)
+		goto error2;
+	infolen = strlen(infobuf);
+	ret = infolen + desclen + 1;
 
 	/* consider returning the data */
-	if (buffer && buflen > 0) {
-		if (buflen > ret)
-			buflen = ret;
-
-		if (copy_to_user(buffer, tmpbuf, buflen) != 0)
+	if (buffer && buflen >= ret) {
+		if (copy_to_user(buffer, infobuf, infolen) != 0 ||
+		    copy_to_user(buffer + infolen, key->description,
+				 desclen + 1) != 0)
 			ret = -EFAULT;
 	}
 
-	kfree(tmpbuf);
+	kfree(infobuf);
 error2:
 	key_ref_put(key_ref);
 error:
@@ -632,7 +645,7 @@ long keyctl_keyring_search(key_serial_t ringid,
 	if (ret < 0)
 		goto error;
 
-	description = strndup_user(_description, PAGE_SIZE);
+	description = strndup_user(_description, KEY_MAX_DESC_SIZE);
 	if (IS_ERR(description)) {
 		ret = PTR_ERR(description);
 		goto error;
@@ -985,21 +998,6 @@ static int keyctl_change_reqkey_auth(struct key *key)
 }
 
 /*
- * Copy the iovec data from userspace
- */
-static long copy_from_user_iovec(void *buffer, const struct iovec *iov,
-				 unsigned ioc)
-{
-	for (; ioc > 0; ioc--) {
-		if (copy_from_user(buffer, iov->iov_base, iov->iov_len) != 0)
-			return -EFAULT;
-		buffer += iov->iov_len;
-		iov++;
-	}
-	return 0;
-}
-
-/*
  * Instantiate a key with the specified payload and link the key into the
  * destination keyring if one is given.
  *
@@ -1009,19 +1007,20 @@ static long copy_from_user_iovec(void *buffer, const struct iovec *iov,
  * If successful, 0 will be returned.
  */
 long keyctl_instantiate_key_common(key_serial_t id,
-				   const struct iovec *payload_iov,
-				   unsigned ioc,
-				   size_t plen,
+				   struct iov_iter *from,
 				   key_serial_t ringid)
 {
 	const struct cred *cred = current_cred();
 	struct request_key_auth *rka;
 	struct key *instkey, *dest_keyring;
+	size_t plen = from ? iov_iter_count(from) : 0;
 	void *payload;
 	long ret;
-	bool vm = false;
 
 	kenter("%d,,%zu,%d", id, plen, ringid);
+
+	if (!plen)
+		from = NULL;
 
 	ret = -EINVAL;
 	if (plen > 1024 * 1024 - 1)
@@ -1041,20 +1040,19 @@ long keyctl_instantiate_key_common(key_serial_t id,
 	/* pull the payload in if one was supplied */
 	payload = NULL;
 
-	if (payload_iov) {
+	if (from) {
 		ret = -ENOMEM;
 		payload = kmalloc(plen, GFP_KERNEL);
 		if (!payload) {
 			if (plen <= PAGE_SIZE)
 				goto error;
-			vm = true;
 			payload = vmalloc(plen);
 			if (!payload)
 				goto error;
 		}
 
-		ret = copy_from_user_iovec(payload, payload_iov, ioc);
-		if (ret < 0)
+		ret = -EFAULT;
+		if (copy_from_iter(payload, plen, from) != plen)
 			goto error2;
 	}
 
@@ -1076,10 +1074,7 @@ long keyctl_instantiate_key_common(key_serial_t id,
 		keyctl_change_reqkey_auth(NULL);
 
 error2:
-	if (!vm)
-		kfree(payload);
-	else
-		vfree(payload);
+	kvfree(payload);
 error:
 	return ret;
 }
@@ -1099,15 +1094,19 @@ long keyctl_instantiate_key(key_serial_t id,
 			    key_serial_t ringid)
 {
 	if (_payload && plen) {
-		struct iovec iov[1] = {
-			[0].iov_base = (void __user *)_payload,
-			[0].iov_len  = plen
-		};
+		struct iovec iov;
+		struct iov_iter from;
+		int ret;
 
-		return keyctl_instantiate_key_common(id, iov, 1, plen, ringid);
+		ret = import_single_range(WRITE, (void __user *)_payload, plen,
+					  &iov, &from);
+		if (unlikely(ret))
+			return ret;
+
+		return keyctl_instantiate_key_common(id, &from, ringid);
 	}
 
-	return keyctl_instantiate_key_common(id, NULL, 0, 0, ringid);
+	return keyctl_instantiate_key_common(id, NULL, ringid);
 }
 
 /*
@@ -1125,29 +1124,19 @@ long keyctl_instantiate_key_iov(key_serial_t id,
 				key_serial_t ringid)
 {
 	struct iovec iovstack[UIO_FASTIOV], *iov = iovstack;
+	struct iov_iter from;
 	long ret;
 
-	if (!_payload_iov || !ioc)
-		goto no_payload;
+	if (!_payload_iov)
+		ioc = 0;
 
-	ret = rw_copy_check_uvector(WRITE, _payload_iov, ioc,
-				    ARRAY_SIZE(iovstack), iovstack, &iov);
+	ret = import_iovec(WRITE, _payload_iov, ioc,
+				    ARRAY_SIZE(iovstack), &iov, &from);
 	if (ret < 0)
-		goto err;
-	if (ret == 0)
-		goto no_payload_free;
-
-	ret = keyctl_instantiate_key_common(id, iov, ioc, ret, ringid);
-err:
-	if (iov != iovstack)
-		kfree(iov);
+		return ret;
+	ret = keyctl_instantiate_key_common(id, &from, ringid);
+	kfree(iov);
 	return ret;
-
-no_payload_free:
-	if (iov != iovstack)
-		kfree(iov);
-no_payload:
-	return keyctl_instantiate_key_common(id, NULL, 0, 0, ringid);
 }
 
 /*

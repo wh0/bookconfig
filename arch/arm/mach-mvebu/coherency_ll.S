@@ -24,7 +24,10 @@
 #include <asm/cp15.h>
 
 	.text
-/* Returns the coherency base address in r1 (r0 is untouched) */
+/*
+ * Returns the coherency base address in r1 (r0 is untouched), or 0 if
+ * the coherency fabric is not enabled.
+ */
 ENTRY(ll_get_coherency_base)
 	mrc	p15, 0, r1, c1, c0, 0
 	tst	r1, #CR_M @ Check MMU bit enabled
@@ -32,8 +35,13 @@ ENTRY(ll_get_coherency_base)
 
 	/*
 	 * MMU is disabled, use the physical address of the coherency
-	 * base address.
+	 * base address. However, if the coherency fabric isn't mapped
+	 * (i.e its virtual address is zero), it means coherency is
+	 * not enabled, so we return 0.
 	 */
+	ldr	r1, =coherency_base
+	cmp	r1, #0
+	beq	2f
 	adr	r1, 3f
 	ldr	r3, [r1]
 	ldr	r1, [r1, r3]
@@ -46,7 +54,7 @@ ENTRY(ll_get_coherency_base)
 	ldr	r1, =coherency_base
 	ldr	r1, [r1]
 2:
-	mov	pc, lr
+	ret	lr
 ENDPROC(ll_get_coherency_base)
 
 /*
@@ -63,7 +71,7 @@ ENTRY(ll_get_coherency_cpumask)
 	mov	r2, #(1 << 24)
 	lsl	r3, r2, r3
 ARM_BE8(rev	r3, r3)
-	mov	pc, lr
+	ret	lr
 ENDPROC(ll_get_coherency_cpumask)
 
 /*
@@ -85,6 +93,9 @@ ENTRY(ll_add_cpu_to_smp_group)
 	 */
 	mov 	r0, lr
 	bl	ll_get_coherency_base
+	/* Bail out if the coherency is not enabled */
+	cmp	r1, #0
+	reteq	r0
 	bl	ll_get_coherency_cpumask
 	mov 	lr, r0
 	add	r0, r1, #ARMADA_XP_CFB_CFG_REG_OFFSET
@@ -94,7 +105,7 @@ ENTRY(ll_add_cpu_to_smp_group)
 	strex	r1, r2, [r0]
 	cmp	r1, #0
 	bne	1b
-	mov	pc, lr
+	ret	lr
 ENDPROC(ll_add_cpu_to_smp_group)
 
 ENTRY(ll_enable_coherency)
@@ -107,6 +118,9 @@ ENTRY(ll_enable_coherency)
 	 */
 	mov r0, lr
 	bl	ll_get_coherency_base
+	/* Bail out if the coherency is not enabled */
+	cmp	r1, #0
+	reteq	r0
 	bl	ll_get_coherency_cpumask
 	mov lr, r0
 	add	r0, r1, #ARMADA_XP_CFB_CTL_REG_OFFSET
@@ -118,7 +132,7 @@ ENTRY(ll_enable_coherency)
 	bne	1b
 	dsb
 	mov	r0, #0
-	mov	pc, lr
+	ret	lr
 ENDPROC(ll_enable_coherency)
 
 ENTRY(ll_disable_coherency)
@@ -131,6 +145,9 @@ ENTRY(ll_disable_coherency)
 	 */
 	mov 	r0, lr
 	bl	ll_get_coherency_base
+	/* Bail out if the coherency is not enabled */
+	cmp	r1, #0
+	reteq	r0
 	bl	ll_get_coherency_cpumask
 	mov 	lr, r0
 	add	r0, r1, #ARMADA_XP_CFB_CTL_REG_OFFSET
@@ -141,7 +158,7 @@ ENTRY(ll_disable_coherency)
 	cmp	r1, #0
 	bne	1b
 	dsb
-	mov	pc, lr
+	ret	lr
 ENDPROC(ll_disable_coherency)
 
 	.align 2

@@ -44,6 +44,12 @@ static int hsta_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 	int irq, hwirq;
 	u64 addr;
 
+	/* We don't support MSI-X */
+	if (type == PCI_CAP_ID_MSIX) {
+		pr_debug("%s: MSI-X not supported.\n", __func__);
+		return -EINVAL;
+	}
+
 	list_for_each_entry(entry, &dev->msi_list, list) {
 		irq = msi_bitmap_alloc_hwirqs(&ppc4xx_hsta_msi.bmp, 1);
 		if (irq < 0) {
@@ -79,7 +85,7 @@ static int hsta_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 			msi_bitmap_free_hwirqs(&ppc4xx_hsta_msi.bmp, irq, 1);
 			return -EINVAL;
 		}
-		write_msi_msg(hwirq, &msg);
+		pci_write_msi_msg(hwirq, &msg);
 	}
 
 	return 0;
@@ -117,17 +123,6 @@ static void hsta_teardown_msi_irqs(struct pci_dev *dev)
 	}
 }
 
-static int hsta_msi_check_device(struct pci_dev *pdev, int nvec, int type)
-{
-	/* We don't support MSI-X */
-	if (type == PCI_CAP_ID_MSIX) {
-		pr_debug("%s: MSI-X not supported.\n", __func__);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static int hsta_msi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -150,7 +145,7 @@ static int hsta_msi_probe(struct platform_device *pdev)
 	ppc4xx_hsta_msi.address = mem->start;
 	ppc4xx_hsta_msi.data = ioremap(mem->start, resource_size(mem));
 	ppc4xx_hsta_msi.irq_count = irq_count;
-	if (IS_ERR(ppc4xx_hsta_msi.data)) {
+	if (!ppc4xx_hsta_msi.data) {
 		dev_err(dev, "Unable to map memory\n");
 		return -ENOMEM;
 	}
@@ -178,7 +173,6 @@ static int hsta_msi_probe(struct platform_device *pdev)
 
 	ppc_md.setup_msi_irqs = hsta_setup_msi_irqs;
 	ppc_md.teardown_msi_irqs = hsta_teardown_msi_irqs;
-	ppc_md.msi_check_device = hsta_msi_check_device;
 	return 0;
 
 out2:
@@ -203,7 +197,6 @@ static struct platform_driver hsta_msi_driver = {
 	.probe = hsta_msi_probe,
 	.driver = {
 		.name = "hsta-msi",
-		.owner = THIS_MODULE,
 		.of_match_table = hsta_msi_ids,
 	},
 };

@@ -108,6 +108,7 @@
 	exit_code_ipa0(0xB2, 0x17, "STETR"),	\
 	exit_code_ipa0(0xB2, 0x18, "PC"),	\
 	exit_code_ipa0(0xB2, 0x20, "SERVC"),	\
+	exit_code_ipa0(0xB2, 0x21, "IPTE"),	\
 	exit_code_ipa0(0xB2, 0x28, "PT"),	\
 	exit_code_ipa0(0xB2, 0x29, "ISKE"),	\
 	exit_code_ipa0(0xB2, 0x2a, "RRBE"),	\
@@ -229,7 +230,7 @@
  * and returns a key, which can be used to find a mnemonic name
  * of the instruction in the icpt_insn_codes table.
  */
-#define icpt_insn_decoder(insn)			\
+#define icpt_insn_decoder(insn) (		\
 	INSN_DECODE_IPA0(0x01, insn, 48, 0xff)	\
 	INSN_DECODE_IPA0(0xaa, insn, 48, 0x0f)	\
 	INSN_DECODE_IPA0(0xb2, insn, 48, 0xff)	\
@@ -238,6 +239,6 @@
 	INSN_DECODE_IPA0(0xe5, insn, 48, 0xff)	\
 	INSN_DECODE_IPA0(0xeb, insn, 16, 0xff)	\
 	INSN_DECODE_IPA0(0xc8, insn, 48, 0x0f)	\
-	INSN_DECODE(insn)
+	INSN_DECODE(insn))
 
 #endif /* _UAPI_ASM_S390_SIE_H */

@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2014, Intel Corp.
+ * Copyright (C) 2000 - 2015, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,8 @@ acpi_status acpi_allocate_root_table(u32 initial_table_count);
 /*
  * tbxfroot - Root pointer utilities
  */
+u32 acpi_tb_get_rsdp_length(struct acpi_table_rsdp *rsdp);
+
 acpi_status acpi_tb_validate_rsdp(struct acpi_table_rsdp *rsdp);
 
 u8 *acpi_tb_scan_memory_for_rsdp(u8 *start_address, u32 length);
@@ -56,7 +58,9 @@ u8 *acpi_tb_scan_memory_for_rsdp(u8 *start_address, u32 length);
 /*
  * tbdata - table data structure management
  */
-acpi_status acpi_tb_get_next_root_index(u32 *table_index);
+acpi_status
+acpi_tb_get_next_table_descriptor(u32 *table_index,
+				  struct acpi_table_desc **table_desc);
 
 void
 acpi_tb_init_table_descriptor(struct acpi_table_desc *table_desc,
@@ -116,11 +120,6 @@ acpi_status
 acpi_tb_install_standard_table(acpi_physical_address address,
 			       u8 flags,
 			       u8 reload, u8 override, u32 *table_index);
-
-acpi_status
-acpi_tb_store_table(acpi_physical_address address,
-		    struct acpi_table_header *table,
-		    u32 length, u8 flags, u32 *table_index);
 
 void acpi_tb_uninstall_table(struct acpi_table_desc *table_desc);
 

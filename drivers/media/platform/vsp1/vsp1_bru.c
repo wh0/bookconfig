@@ -18,8 +18,9 @@
 
 #include "vsp1.h"
 #include "vsp1_bru.h"
+#include "vsp1_rwpf.h"
 
-#define BRU_MIN_SIZE				4U
+#define BRU_MIN_SIZE				1U
 #define BRU_MAX_SIZE				8190U
 
 /* -----------------------------------------------------------------------------
@@ -37,19 +38,47 @@ static inline void vsp1_bru_write(struct vsp1_bru *bru, u32 reg, u32 data)
 }
 
 /* -----------------------------------------------------------------------------
+ * Controls
+ */
+
+static int bru_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct vsp1_bru *bru =
+		container_of(ctrl->handler, struct vsp1_bru, ctrls);
+
+	if (!vsp1_entity_is_streaming(&bru->entity))
+		return 0;
+
+	switch (ctrl->id) {
+	case V4L2_CID_BG_COLOR:
+		vsp1_bru_write(bru, VI6_BRU_VIRRPF_COL, ctrl->val |
+			       (0xff << VI6_BRU_VIRRPF_COL_A_SHIFT));
+		break;
+	}
+
+	return 0;
+}
+
+static const struct v4l2_ctrl_ops bru_ctrl_ops = {
+	.s_ctrl = bru_s_ctrl,
+};
+
+/* -----------------------------------------------------------------------------
  * V4L2 Subdevice Core Operations
  */
 
-static bool bru_is_input_enabled(struct vsp1_bru *bru, unsigned int input)
-{
-	return media_entity_remote_pad(&bru->entity.pads[input]) != NULL;
-}
-
 static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
 {
+	struct vsp1_pipeline *pipe = to_vsp1_pipeline(&subdev->entity);
 	struct vsp1_bru *bru = to_bru(subdev);
 	struct v4l2_mbus_framefmt *format;
+	unsigned int flags;
 	unsigned int i;
+	int ret;
+
+	ret = vsp1_entity_set_streaming(&bru->entity, enable);
+	if (ret < 0)
+		return ret;
 
 	if (!enable)
 		return 0;
@@ -62,18 +91,19 @@ static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
 	 * to sane default values for now.
 	 */
 
-	/* Disable both color data normalization and dithering. */
-	vsp1_bru_write(bru, VI6_BRU_INCTRL, 0);
-
-	/* Set the background position to cover the whole output image and
-	 * set its color to opaque black.
+	/* Disable dithering and enable color data normalization unless the
+	 * format at the pipeline output is premultiplied.
 	 */
+	flags = pipe->output ? pipe->output->video.format.flags : 0;
+	vsp1_bru_write(bru, VI6_BRU_INCTRL,
+		       flags & V4L2_PIX_FMT_FLAG_PREMUL_ALPHA ?
+		       0 : VI6_BRU_INCTRL_NRM);
+
+	/* Set the background position to cover the whole output image. */
 	vsp1_bru_write(bru, VI6_BRU_VIRRPF_SIZE,
 		       (format->width << VI6_BRU_VIRRPF_SIZE_HSIZE_SHIFT) |
 		       (format->height << VI6_BRU_VIRRPF_SIZE_VSIZE_SHIFT));
 	vsp1_bru_write(bru, VI6_BRU_VIRRPF_LOC, 0);
-	vsp1_bru_write(bru, VI6_BRU_VIRRPF_COL,
-		       0xff << VI6_BRU_VIRRPF_COL_A_SHIFT);
 
 	/* Route BRU input 1 as SRC input to the ROP unit and configure the ROP
 	 * unit with a NOP operation to make BRU input 1 available as the
@@ -84,6 +114,7 @@ static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
 		       VI6_BRU_ROP_AROP(VI6_ROP_NOP));
 
 	for (i = 0; i < 4; ++i) {
+		bool premultiplied = false;
 		u32 ctrl = 0;
 
 		/* Configure all Blend/ROP units corresponding to an enabled BRU
@@ -91,11 +122,15 @@ static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
 		 * disabled BRU inputs are used in ROP NOP mode to ignore the
 		 * SRC input.
 		 */
-		if (bru_is_input_enabled(bru, i))
+		if (bru->inputs[i].rpf) {
 			ctrl |= VI6_BRU_CTRL_RBC;
-		else
+
+			premultiplied = bru->inputs[i].rpf->video.format.flags
+				      & V4L2_PIX_FMT_FLAG_PREMUL_ALPHA;
+		} else {
 			ctrl |= VI6_BRU_CTRL_CROP(VI6_ROP_NOP)
 			     |  VI6_BRU_CTRL_AROP(VI6_ROP_NOP);
+		}
 
 		/* Select the virtual RPF as the Blend/ROP unit A DST input to
 		 * serve as a background color.
@@ -117,10 +152,18 @@ static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
 		 *
 		 *	DSTc = DSTc * (1 - SRCa) + SRCc * SRCa
 		 *	DSTa = DSTa * (1 - SRCa) + SRCa
+		 *
+		 * when the SRC input isn't premultiplied, and to
+		 *
+		 *	DSTc = DSTc * (1 - SRCa) + SRCc
+		 *	DSTa = DSTa * (1 - SRCa) + SRCa
+		 *
+		 * otherwise.
 		 */
 		vsp1_bru_write(bru, VI6_BRU_BLD(i),
 			       VI6_BRU_BLD_CCMDX_255_SRC_A |
-			       VI6_BRU_BLD_CCMDY_SRC_A |
+			       (premultiplied ? VI6_BRU_BLD_CCMDY_COEFY :
+						VI6_BRU_BLD_CCMDY_SRC_A) |
 			       VI6_BRU_BLD_ACMDX_255_SRC_A |
 			       VI6_BRU_BLD_ACMDY_COEFY |
 			       (0xff << VI6_BRU_BLD_COEFY_SHIFT));
@@ -140,13 +183,14 @@ static int bru_s_stream(struct v4l2_subdev *subdev, int enable)
  */
 
 static int bru_enum_mbus_code(struct v4l2_subdev *subdev,
-			      struct v4l2_subdev_fh *fh,
+			      struct v4l2_subdev_pad_config *cfg,
 			      struct v4l2_subdev_mbus_code_enum *code)
 {
 	static const unsigned int codes[] = {
-		V4L2_MBUS_FMT_ARGB8888_1X32,
-		V4L2_MBUS_FMT_AYUV8_1X32,
+		MEDIA_BUS_FMT_ARGB8888_1X32,
+		MEDIA_BUS_FMT_AYUV8_1X32,
 	};
+	struct vsp1_bru *bru = to_bru(subdev);
 	struct v4l2_mbus_framefmt *format;
 
 	if (code->pad == BRU_PAD_SINK(0)) {
@@ -158,7 +202,8 @@ static int bru_enum_mbus_code(struct v4l2_subdev *subdev,
 		if (code->index)
 			return -EINVAL;
 
-		format = v4l2_subdev_get_try_format(fh, BRU_PAD_SINK(0));
+		format = vsp1_entity_get_pad_format(&bru->entity, cfg,
+						    BRU_PAD_SINK(0), code->which);
 		code->code = format->code;
 	}
 
@@ -166,14 +211,14 @@ static int bru_enum_mbus_code(struct v4l2_subdev *subdev,
 }
 
 static int bru_enum_frame_size(struct v4l2_subdev *subdev,
-			       struct v4l2_subdev_fh *fh,
+			       struct v4l2_subdev_pad_config *cfg,
 			       struct v4l2_subdev_frame_size_enum *fse)
 {
 	if (fse->index)
 		return -EINVAL;
 
-	if (fse->code != V4L2_MBUS_FMT_ARGB8888_1X32 &&
-	    fse->code != V4L2_MBUS_FMT_AYUV8_1X32)
+	if (fse->code != MEDIA_BUS_FMT_ARGB8888_1X32 &&
+	    fse->code != MEDIA_BUS_FMT_AYUV8_1X32)
 		return -EINVAL;
 
 	fse->min_width = BRU_MIN_SIZE;
@@ -185,31 +230,31 @@ static int bru_enum_frame_size(struct v4l2_subdev *subdev,
 }
 
 static struct v4l2_rect *bru_get_compose(struct vsp1_bru *bru,
-					 struct v4l2_subdev_fh *fh,
+					 struct v4l2_subdev_pad_config *cfg,
 					 unsigned int pad, u32 which)
 {
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
-		return v4l2_subdev_get_try_crop(fh, pad);
+		return v4l2_subdev_get_try_crop(&bru->entity.subdev, cfg, pad);
 	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		return &bru->compose[pad];
+		return &bru->inputs[pad].compose;
 	default:
 		return NULL;
 	}
 }
 
-static int bru_get_format(struct v4l2_subdev *subdev, struct v4l2_subdev_fh *fh,
+static int bru_get_format(struct v4l2_subdev *subdev, struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *fmt)
 {
 	struct vsp1_bru *bru = to_bru(subdev);
 
-	fmt->format = *vsp1_entity_get_pad_format(&bru->entity, fh, fmt->pad,
+	fmt->format = *vsp1_entity_get_pad_format(&bru->entity, cfg, fmt->pad,
 						  fmt->which);
 
 	return 0;
 }
 
-static void bru_try_format(struct vsp1_bru *bru, struct v4l2_subdev_fh *fh,
+static void bru_try_format(struct vsp1_bru *bru, struct v4l2_subdev_pad_config *cfg,
 			   unsigned int pad, struct v4l2_mbus_framefmt *fmt,
 			   enum v4l2_subdev_format_whence which)
 {
@@ -218,14 +263,14 @@ static void bru_try_format(struct vsp1_bru *bru, struct v4l2_subdev_fh *fh,
 	switch (pad) {
 	case BRU_PAD_SINK(0):
 		/* Default to YUV if the requested format is not supported. */
-		if (fmt->code != V4L2_MBUS_FMT_ARGB8888_1X32 &&
-		    fmt->code != V4L2_MBUS_FMT_AYUV8_1X32)
-			fmt->code = V4L2_MBUS_FMT_AYUV8_1X32;
+		if (fmt->code != MEDIA_BUS_FMT_ARGB8888_1X32 &&
+		    fmt->code != MEDIA_BUS_FMT_AYUV8_1X32)
+			fmt->code = MEDIA_BUS_FMT_AYUV8_1X32;
 		break;
 
 	default:
 		/* The BRU can't perform format conversion. */
-		format = vsp1_entity_get_pad_format(&bru->entity, fh,
+		format = vsp1_entity_get_pad_format(&bru->entity, cfg,
 						    BRU_PAD_SINK(0), which);
 		fmt->code = format->code;
 		break;
@@ -237,15 +282,15 @@ static void bru_try_format(struct vsp1_bru *bru, struct v4l2_subdev_fh *fh,
 	fmt->colorspace = V4L2_COLORSPACE_SRGB;
 }
 
-static int bru_set_format(struct v4l2_subdev *subdev, struct v4l2_subdev_fh *fh,
+static int bru_set_format(struct v4l2_subdev *subdev, struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *fmt)
 {
 	struct vsp1_bru *bru = to_bru(subdev);
 	struct v4l2_mbus_framefmt *format;
 
-	bru_try_format(bru, fh, fmt->pad, &fmt->format, fmt->which);
+	bru_try_format(bru, cfg, fmt->pad, &fmt->format, fmt->which);
 
-	format = vsp1_entity_get_pad_format(&bru->entity, fh, fmt->pad,
+	format = vsp1_entity_get_pad_format(&bru->entity, cfg, fmt->pad,
 					    fmt->which);
 	*format = fmt->format;
 
@@ -253,7 +298,7 @@ static int bru_set_format(struct v4l2_subdev *subdev, struct v4l2_subdev_fh *fh,
 	if (fmt->pad != BRU_PAD_SOURCE) {
 		struct v4l2_rect *compose;
 
-		compose = bru_get_compose(bru, fh, fmt->pad, fmt->which);
+		compose = bru_get_compose(bru, cfg, fmt->pad, fmt->which);
 		compose->left = 0;
 		compose->top = 0;
 		compose->width = format->width;
@@ -265,7 +310,7 @@ static int bru_set_format(struct v4l2_subdev *subdev, struct v4l2_subdev_fh *fh,
 		unsigned int i;
 
 		for (i = 0; i <= BRU_PAD_SOURCE; ++i) {
-			format = vsp1_entity_get_pad_format(&bru->entity, fh,
+			format = vsp1_entity_get_pad_format(&bru->entity, cfg,
 							    i, fmt->which);
 			format->code = fmt->format.code;
 		}
@@ -275,7 +320,7 @@ static int bru_set_format(struct v4l2_subdev *subdev, struct v4l2_subdev_fh *fh,
 }
 
 static int bru_get_selection(struct v4l2_subdev *subdev,
-			     struct v4l2_subdev_fh *fh,
+			     struct v4l2_subdev_pad_config *cfg,
 			     struct v4l2_subdev_selection *sel)
 {
 	struct vsp1_bru *bru = to_bru(subdev);
@@ -292,7 +337,7 @@ static int bru_get_selection(struct v4l2_subdev *subdev,
 		return 0;
 
 	case V4L2_SEL_TGT_COMPOSE:
-		sel->r = *bru_get_compose(bru, fh, sel->pad, sel->which);
+		sel->r = *bru_get_compose(bru, cfg, sel->pad, sel->which);
 		return 0;
 
 	default:
@@ -301,7 +346,7 @@ static int bru_get_selection(struct v4l2_subdev *subdev,
 }
 
 static int bru_set_selection(struct v4l2_subdev *subdev,
-			     struct v4l2_subdev_fh *fh,
+			     struct v4l2_subdev_pad_config *cfg,
 			     struct v4l2_subdev_selection *sel)
 {
 	struct vsp1_bru *bru = to_bru(subdev);
@@ -317,7 +362,7 @@ static int bru_set_selection(struct v4l2_subdev *subdev,
 	/* The compose rectangle top left corner must be inside the output
 	 * frame.
 	 */
-	format = vsp1_entity_get_pad_format(&bru->entity, fh, BRU_PAD_SOURCE,
+	format = vsp1_entity_get_pad_format(&bru->entity, cfg, BRU_PAD_SOURCE,
 					    sel->which);
 	sel->r.left = clamp_t(unsigned int, sel->r.left, 0, format->width - 1);
 	sel->r.top = clamp_t(unsigned int, sel->r.top, 0, format->height - 1);
@@ -325,12 +370,12 @@ static int bru_set_selection(struct v4l2_subdev *subdev,
 	/* Scaling isn't supported, the compose rectangle size must be identical
 	 * to the sink format size.
 	 */
-	format = vsp1_entity_get_pad_format(&bru->entity, fh, sel->pad,
+	format = vsp1_entity_get_pad_format(&bru->entity, cfg, sel->pad,
 					    sel->which);
 	sel->r.width = format->width;
 	sel->r.height = format->height;
 
-	compose = bru_get_compose(bru, fh, sel->pad, sel->which);
+	compose = bru_get_compose(bru, cfg, sel->pad, sel->which);
 	*compose = sel->r;
 
 	return 0;
@@ -390,6 +435,20 @@ struct vsp1_bru *vsp1_bru_create(struct vsp1_device *vsp1)
 	subdev->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 
 	vsp1_entity_init_formats(subdev, NULL);
+
+	/* Initialize the control handler. */
+	v4l2_ctrl_handler_init(&bru->ctrls, 1);
+	v4l2_ctrl_new_std(&bru->ctrls, &bru_ctrl_ops, V4L2_CID_BG_COLOR,
+			  0, 0xffffff, 1, 0);
+
+	bru->entity.subdev.ctrl_handler = &bru->ctrls;
+
+	if (bru->ctrls.error) {
+		dev_err(vsp1->dev, "bru: failed to initialize controls\n");
+		ret = bru->ctrls.error;
+		vsp1_entity_destroy(&bru->entity);
+		return ERR_PTR(ret);
+	}
 
 	return bru;
 }

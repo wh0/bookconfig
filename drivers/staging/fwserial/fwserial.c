@@ -278,7 +278,6 @@ static void fwtty_send_txn_async(struct fwtty_peer *peer,
 			len, fwtty_common_callback, txn);
 }
 
-
 static void __fwtty_restart_tx(struct fwtty_port *port)
 {
 	int len, avail;
@@ -507,7 +506,6 @@ static void fwtty_do_hangup(struct work_struct *work)
 		tty_vhangup(tty);
 	tty_kref_put(tty);
 }
-
 
 static void fwtty_emit_breaks(struct work_struct *work)
 {
@@ -785,6 +783,7 @@ static int fwtty_tx(struct fwtty_port *port, bool drain)
 		len = dma_fifo_out_level(&port->tx_fifo);
 		if (len) {
 			unsigned long delay = (n == -ENOMEM) ? HZ : 1;
+
 			schedule_delayed_work(&port->drain, delay);
 		}
 		len = dma_fifo_level(&port->tx_fifo);
@@ -1187,7 +1186,7 @@ static void fwtty_unthrottle(struct tty_struct *tty)
 {
 	struct fwtty_port *port = tty->driver_data;
 
-	fwtty_dbg(port, "CRTSCTS: %d\n", (C_CRTSCTS(tty) != 0));
+	fwtty_dbg(port, "CRTSCTS: %d\n", C_CRTSCTS(tty) != 0);
 
 	fwtty_profile_fifo(port, port->stats.unthrottle);
 
@@ -1621,7 +1620,6 @@ static inline int mgmt_pkt_expected_len(__be16 code)
 	case FWSC_VIRT_CABLE_PLUG_RSP:  /* | FWSC_RSP_OK */
 		return sizeof(pkt.hdr) + sizeof(pkt.plug_rsp);
 
-
 	case FWSC_VIRT_CABLE_UNPLUG:
 	case FWSC_VIRT_CABLE_UNPLUG_RSP:
 	case FWSC_VIRT_CABLE_PLUG_RSP | FWSC_RSP_NACK:
@@ -1995,6 +1993,7 @@ static struct fwtty_peer *__fwserial_peer_by_node_id(struct fw_card *card,
 
 	list_for_each_entry_rcu(peer, &serial->peer_list, list) {
 		int g = peer->generation;
+
 		smp_rmb();
 		if (generation == g && id == peer->node_id)
 			return peer;
@@ -2015,6 +2014,7 @@ static void __dump_peer_list(struct fw_card *card)
 
 	list_for_each_entry_rcu(peer, &serial->peer_list, list) {
 		int g = peer->generation;
+
 		smp_rmb();
 		fwtty_dbg(card, "peer(%d:%x) guid: %016llx\n",
 			  g, peer->node_id, (unsigned long long) peer->guid);
@@ -2120,6 +2120,7 @@ static int fwserial_add_peer(struct fw_serial *serial, struct fw_unit *unit)
 		serial->self = peer;
 		if (create_loop_dev) {
 			struct fwtty_port *port;
+
 			port = fwserial_claim_port(peer, num_ttys);
 			if (!IS_ERR(port)) {
 				struct virt_plug_params params;
@@ -2611,7 +2612,6 @@ cleanup:
 	if (port)
 		fwserial_release_port(port, false);
 	kfree(pkt);
-	return;
 }
 
 static void fwserial_handle_unplug_req(struct work_struct *work)
@@ -2663,7 +2663,6 @@ cleanup:
 	if (port)
 		fwserial_release_port(port, true);
 	kfree(pkt);
-	return;
 }
 
 static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,

@@ -290,10 +290,10 @@ static int lov_lock_sub_init(const struct lu_env *env,
 	int result = 0;
 	int i;
 	int nr;
-	obd_off start;
-	obd_off end;
-	obd_off file_start;
-	obd_off file_end;
+	u64 start;
+	u64 end;
+	u64 file_start;
+	u64 file_end;
 
 	struct lov_object       *loo    = cl2lov(lck->lls_cl.cls_obj);
 	struct lov_layout_raid0 *r0     = lov_r0(loo);
@@ -308,7 +308,8 @@ static int lov_lock_sub_init(const struct lu_env *env,
 		 * XXX for wide striping smarter algorithm is desirable,
 		 * breaking out of the loop, early.
 		 */
-		if (lov_stripe_intersects(loo->lo_lsm, i,
+		if (likely(r0->lo_sub[i] != NULL) &&
+		    lov_stripe_intersects(loo->lo_lsm, i,
 					  file_start, file_end, &start, &end))
 			nr++;
 	}
@@ -326,7 +327,8 @@ static int lov_lock_sub_init(const struct lu_env *env,
 	 * top-lock.
 	 */
 	for (i = 0, nr = 0; i < r0->lo_nr; ++i) {
-		if (lov_stripe_intersects(loo->lo_lsm, i,
+		if (likely(r0->lo_sub[i] != NULL) &&
+		    lov_stripe_intersects(loo->lo_lsm, i,
 					  file_start, file_end, &start, &end)) {
 			struct cl_lock_descr *descr;
 
@@ -860,10 +862,10 @@ static int lock_lock_multi_match()
 	struct lov_layout_raid0 *r0      = lov_r0(loo);
 	struct lov_lock_sub     *sub;
 	struct cl_object	*subobj;
-	obd_off  fstart;
-	obd_off  fend;
-	obd_off  start;
-	obd_off  end;
+	u64  fstart;
+	u64  fend;
+	u64  start;
+	u64  end;
 	int i;
 
 	fstart = cl_offset(need->cld_obj, need->cld_start);
@@ -900,8 +902,8 @@ static int lov_lock_stripe_is_matching(const struct lu_env *env,
 				       const struct cl_lock_descr *descr)
 {
 	struct lov_stripe_md *lsm = lov->lo_lsm;
-	obd_off start;
-	obd_off end;
+	u64 start;
+	u64 end;
 	int result;
 
 	if (lov_r0(lov)->lo_nr == 1)
@@ -914,13 +916,25 @@ static int lov_lock_stripe_is_matching(const struct lu_env *env,
 	 */
 	start = cl_offset(&lov->lo_cl, descr->cld_start);
 	end   = cl_offset(&lov->lo_cl, descr->cld_end + 1) - 1;
-	result = end - start <= lsm->lsm_stripe_size &&
-		 stripe == lov_stripe_number(lsm, start) &&
-		 stripe == lov_stripe_number(lsm, end);
-	if (result) {
+	result = 0;
+	/* glimpse should work on the object with LOV EA hole. */
+	if (end - start <= lsm->lsm_stripe_size) {
+		int idx;
+
+		idx = lov_stripe_number(lsm, start);
+		if (idx == stripe ||
+		    unlikely(lov_r0(lov)->lo_sub[idx] == NULL)) {
+			idx = lov_stripe_number(lsm, end);
+			if (idx == stripe ||
+			    unlikely(lov_r0(lov)->lo_sub[idx] == NULL))
+				result = 1;
+		}
+	}
+
+	if (result != 0) {
 		struct cl_lock_descr *subd = &lov_env_info(env)->lti_ldescr;
-		obd_off sub_start;
-		obd_off sub_end;
+		u64 sub_start;
+		u64 sub_end;
 
 		subd->cld_obj  = NULL;   /* don't need sub object at all */
 		subd->cld_mode = descr->cld_mode;

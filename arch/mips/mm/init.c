@@ -53,6 +53,7 @@
  */
 unsigned long empty_zero_page, zero_page_mask;
 EXPORT_SYMBOL_GPL(empty_zero_page);
+EXPORT_SYMBOL(zero_page_mask);
 
 /*
  * Not static inline because used by IP27 special magic initialization code
@@ -94,8 +95,8 @@ static void *__kmap_pgprot(struct page *page, unsigned long addr, pgprot_t prot)
 	idx += in_interrupt() ? FIX_N_COLOURS : 0;
 	vaddr = __fix_to_virt(FIX_CMAP_END - idx);
 	pte = mk_pte(page, prot);
-#if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
-	entrylo = pte.pte_high;
+#if defined(CONFIG_PHYS_ADDR_T_64BIT) && defined(CONFIG_CPU_MIPS32)
+	entrylo = pte_to_entrylo(pte.pte_high);
 #else
 	entrylo = pte_to_entrylo(pte_val(pte));
 #endif
@@ -105,6 +106,11 @@ static void *__kmap_pgprot(struct page *page, unsigned long addr, pgprot_t prot)
 	write_c0_entryhi(vaddr & (PAGE_MASK << 1));
 	write_c0_entrylo0(entrylo);
 	write_c0_entrylo1(entrylo);
+#ifdef CONFIG_XPA
+	entrylo = (pte.pte_low & _PFNX_MASK);
+	writex_c0_entrylo0(entrylo);
+	writex_c0_entrylo1(entrylo);
+#endif
 	tlbidx = read_c0_wired();
 	write_c0_wired(tlbidx + 1);
 	write_c0_index(tlbidx);
@@ -325,6 +331,38 @@ static inline void mem_init_free_highmem(void)
 #endif
 }
 
+unsigned __weak platform_maar_init(unsigned num_maars)
+{
+	return 0;
+}
+
+static void maar_init(void)
+{
+	unsigned num_maars, used, i;
+
+	if (!cpu_has_maar)
+		return;
+
+	/* Detect the number of MAARs */
+	write_c0_maari(~0);
+	back_to_back_c0_hazard();
+	num_maars = read_c0_maari() + 1;
+
+	/* MAARs should be in pairs */
+	WARN_ON(num_maars % 2);
+
+	/* Configure the required MAARs */
+	used = platform_maar_init(num_maars / 2);
+
+	/* Disable any further MAARs */
+	for (i = (used * 2); i < num_maars; i++) {
+		write_c0_maari(i);
+		back_to_back_c0_hazard();
+		write_c0_maar(0);
+		back_to_back_c0_hazard();
+	}
+}
+
 void __init mem_init(void)
 {
 #ifdef CONFIG_HIGHMEM
@@ -337,6 +375,7 @@ void __init mem_init(void)
 #endif
 	high_memory = (void *) __va(max_low_pfn << PAGE_SHIFT);
 
+	maar_init();
 	free_all_bootmem();
 	setup_zero_pages();	/* Setup zeroed pages.  */
 	mem_init_free_highmem();

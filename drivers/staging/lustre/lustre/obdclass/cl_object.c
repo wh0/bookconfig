@@ -51,14 +51,14 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
-#include <linux/libcfs/libcfs.h>
+#include "../../include/linux/libcfs/libcfs.h"
 /* class_put_type() */
-#include <obd_class.h>
-#include <obd_support.h>
-#include <lustre_fid.h>
+#include "../include/obd_class.h"
+#include "../include/obd_support.h"
+#include "../include/lustre_fid.h"
 #include <linux/list.h>
-#include <linux/libcfs/libcfs_hash.h> /* for cfs_hash stuff */
-#include <cl_object.h>
+#include "../../include/linux/libcfs/libcfs_hash.h"	/* for cfs_hash stuff */
+#include "../include/cl_object.h"
 #include "cl_internal.h"
 
 static struct kmem_cache *cl_env_kmem;
@@ -193,6 +193,7 @@ static spinlock_t *cl_object_attr_guard(struct cl_object *o)
  * cl_object_attr_get(), cl_object_attr_set().
  */
 void cl_object_attr_lock(struct cl_object *o)
+	__acquires(cl_object_attr_guard(o))
 {
 	spin_lock(cl_object_attr_guard(o));
 }
@@ -202,6 +203,7 @@ EXPORT_SYMBOL(cl_object_attr_lock);
  * Releases data-attributes lock, acquired by cl_object_attr_lock().
  */
 void cl_object_attr_unlock(struct cl_object *o)
+	__releases(cl_object_attr_guard(o))
 {
 	spin_unlock(cl_object_attr_guard(o));
 }
@@ -295,8 +297,7 @@ int cl_object_glimpse(const struct lu_env *env, struct cl_object *obj,
 		}
 	}
 	LU_OBJECT_HEADER(D_DLMTRACE, env, lu_object_top(top),
-			 "size: "LPU64" mtime: "LPU64" atime: "LPU64" "
-			 "ctime: "LPU64" blocks: "LPU64"\n",
+			 "size: %llu mtime: %llu atime: %llu ctime: %llu blocks: %llu\n",
 			 lvb->lvb_size, lvb->lvb_mtime, lvb->lvb_atime,
 			 lvb->lvb_ctime, lvb->lvb_blocks);
 	return result;
@@ -663,7 +664,8 @@ static int cl_env_store_init(void) {
 	return cl_env_hash != NULL ? 0 :-ENOMEM;
 }
 
-static void cl_env_store_fini(void) {
+static void cl_env_store_fini(void)
+{
 	cfs_hash_putref(cl_env_hash);
 }
 

@@ -22,6 +22,8 @@
 #include <net/nfc/llc.h>
 
 #include "st21nfca.h"
+#include "st21nfca_dep.h"
+#include "st21nfca_se.h"
 
 #define DRIVER_DESC "HCI NFC driver for ST21NFCA"
 
@@ -33,7 +35,7 @@
 #define ST21NFCA_RF_READER_CMD_PRESENCE_CHECK	0x30
 
 #define ST21NFCA_RF_READER_ISO15693_GATE	0x12
-#define ST21NFCA_RF_READER_ISO15693_INVENTORY 0x01
+#define ST21NFCA_RF_READER_ISO15693_INVENTORY	0x01
 
 /*
  * Reader gate for communication with contact-less cards using Type A
@@ -44,20 +46,42 @@
 #define ST21NFCA_RF_READER_14443_3_A_ATQA	0x03
 #define ST21NFCA_RF_READER_14443_3_A_SAK	0x04
 
-#define ST21NFCA_DEVICE_MGNT_GATE		0x01
+#define ST21NFCA_RF_READER_F_DATARATE		0x01
+#define ST21NFCA_RF_READER_F_DATARATE_106	0x01
+#define ST21NFCA_RF_READER_F_DATARATE_212	0x02
+#define ST21NFCA_RF_READER_F_DATARATE_424	0x04
+#define ST21NFCA_RF_READER_F_POL_REQ		0x02
+#define ST21NFCA_RF_READER_F_POL_REQ_DEFAULT	0xffff0000
+#define ST21NFCA_RF_READER_F_NFCID2		0x03
+#define ST21NFCA_RF_READER_F_NFCID1		0x04
+
+#define ST21NFCA_RF_CARD_F_MODE			0x01
+#define ST21NFCA_RF_CARD_F_NFCID2_LIST		0x04
+#define ST21NFCA_RF_CARD_F_NFCID1		0x05
+#define ST21NFCA_RF_CARD_F_SENS_RES		0x06
+#define ST21NFCA_RF_CARD_F_SEL_RES		0x07
+#define ST21NFCA_RF_CARD_F_DATARATE		0x08
+#define ST21NFCA_RF_CARD_F_DATARATE_212_424	0x01
+
 #define ST21NFCA_DEVICE_MGNT_PIPE		0x02
 
-#define ST21NFCA_DM_GETINFO         0x13
-#define ST21NFCA_DM_GETINFO_PIPE_LIST       0x02
-#define ST21NFCA_DM_GETINFO_PIPE_INFO       0x01
-#define ST21NFCA_DM_PIPE_CREATED        0x02
-#define ST21NFCA_DM_PIPE_OPEN           0x04
-#define ST21NFCA_DM_RF_ACTIVE           0x80
+#define ST21NFCA_DM_GETINFO			0x13
+#define ST21NFCA_DM_GETINFO_PIPE_LIST		0x02
+#define ST21NFCA_DM_GETINFO_PIPE_INFO		0x01
+#define ST21NFCA_DM_PIPE_CREATED		0x02
+#define ST21NFCA_DM_PIPE_OPEN			0x04
+#define ST21NFCA_DM_RF_ACTIVE			0x80
+#define ST21NFCA_DM_DISCONNECT			0x30
 
 #define ST21NFCA_DM_IS_PIPE_OPEN(p) \
 	((p & 0x0f) == (ST21NFCA_DM_PIPE_CREATED | ST21NFCA_DM_PIPE_OPEN))
 
-#define ST21NFCA_NFC_MODE	0x03	/* NFC_MODE parameter*/
+#define ST21NFCA_NFC_MODE			0x03	/* NFC_MODE parameter*/
+
+#define ST21NFCA_EVT_HOT_PLUG			0x03
+#define ST21NFCA_EVT_HOT_PLUG_IS_INHIBITED(x) (x->data[0] & 0x80)
+
+#define ST21NFCA_SE_TO_PIPES			2000
 
 static DECLARE_BITMAP(dev_mask, ST21NFCA_NUM_DEVICES);
 
@@ -72,6 +96,11 @@ static struct nfc_hci_gate st21nfca_gates[] = {
 	{ST21NFCA_RF_READER_F_GATE, NFC_HCI_INVALID_PIPE},
 	{ST21NFCA_RF_READER_14443_3_A_GATE, NFC_HCI_INVALID_PIPE},
 	{ST21NFCA_RF_READER_ISO15693_GATE, NFC_HCI_INVALID_PIPE},
+	{ST21NFCA_RF_CARD_F_GATE, NFC_HCI_INVALID_PIPE},
+
+	/* Secure element pipes are created by secure element host */
+	{ST21NFCA_CONNECTIVITY_GATE, NFC_HCI_DO_NOT_CREATE_PIPE},
+	{ST21NFCA_APDU_READER_GATE, NFC_HCI_DO_NOT_CREATE_PIPE},
 };
 
 struct st21nfca_pipe_info {
@@ -98,18 +127,6 @@ static int st21nfca_hci_load_session(struct nfc_hci_dev *hdev)
 		NFC_HCI_TERMINAL_HOST_ID, 0
 	};
 
-	skb_pipe_list = alloc_skb(ST21NFCA_HCI_LLC_MAX_SIZE, GFP_KERNEL);
-	if (!skb_pipe_list) {
-		r = -ENOMEM;
-		goto free_list;
-	}
-
-	skb_pipe_info = alloc_skb(ST21NFCA_HCI_LLC_MAX_SIZE, GFP_KERNEL);
-	if (!skb_pipe_info) {
-		r = -ENOMEM;
-		goto free_info;
-	}
-
 	/* On ST21NFCA device pipes number are dynamics
 	 * A maximum of 16 pipes can be created at the same time
 	 * If pipes are already created, hci_dev_up will fail.
@@ -128,7 +145,8 @@ static int st21nfca_hci_load_session(struct nfc_hci_dev *hdev)
 	 * Pipe can be closed and need to be open.
 	 */
 	r = nfc_hci_connect_gate(hdev, NFC_HCI_HOST_CONTROLLER_ID,
-		ST21NFCA_DEVICE_MGNT_GATE, ST21NFCA_DEVICE_MGNT_PIPE);
+				ST21NFCA_DEVICE_MGNT_GATE,
+				ST21NFCA_DEVICE_MGNT_PIPE);
 	if (r < 0)
 		goto free_info;
 
@@ -159,17 +177,28 @@ static int st21nfca_hci_load_session(struct nfc_hci_dev *hdev)
 		 * - destination gid (1byte)
 		 */
 		info = (struct st21nfca_pipe_info *) skb_pipe_info->data;
+		if (info->dst_gate_id == ST21NFCA_APDU_READER_GATE &&
+			info->src_host_id != ST21NFCA_ESE_HOST_ID) {
+			pr_err("Unexpected apdu_reader pipe on host %x\n",
+				info->src_host_id);
+			continue;
+		}
+
 		for (j = 0; (j < ARRAY_SIZE(st21nfca_gates)) &&
-			(st21nfca_gates[j].gate != info->dst_gate_id);
-			j++)
+			(st21nfca_gates[j].gate != info->dst_gate_id) ; j++)
 			;
 
 		if (j < ARRAY_SIZE(st21nfca_gates) &&
 			st21nfca_gates[j].gate == info->dst_gate_id &&
 			ST21NFCA_DM_IS_PIPE_OPEN(info->pipe_state)) {
 			st21nfca_gates[j].pipe = pipe_info[2];
+
 			hdev->gate2pipe[st21nfca_gates[j].gate] =
-				st21nfca_gates[j].pipe;
+							st21nfca_gates[j].pipe;
+			hdev->pipes[st21nfca_gates[j].pipe].gate =
+							st21nfca_gates[j].gate;
+			hdev->pipes[st21nfca_gates[j].pipe].dest_host =
+							info->src_host_id;
 		}
 	}
 
@@ -179,7 +208,7 @@ static int st21nfca_hci_load_session(struct nfc_hci_dev *hdev)
 	 */
 	if (skb_pipe_list->len + 3 < ARRAY_SIZE(st21nfca_gates)) {
 		for (i = skb_pipe_list->len + 3;
-				i < ARRAY_SIZE(st21nfca_gates); i++) {
+				i < ARRAY_SIZE(st21nfca_gates) - 2; i++) {
 			r = nfc_hci_connect_gate(hdev,
 					NFC_HCI_HOST_CONTROLLER_ID,
 					st21nfca_gates[i].gate,
@@ -192,7 +221,6 @@ static int st21nfca_hci_load_session(struct nfc_hci_dev *hdev)
 	memcpy(hdev->init_data.gates, st21nfca_gates, sizeof(st21nfca_gates));
 free_info:
 	kfree_skb(skb_pipe_info);
-free_list:
 	kfree_skb(skb_pipe_list);
 	return r;
 }
@@ -237,16 +265,33 @@ out:
 
 static int st21nfca_hci_ready(struct nfc_hci_dev *hdev)
 {
+	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
 	struct sk_buff *skb;
 
 	u8 param;
+	u8 white_list[2];
+	int wl_size = 0;
 	int r;
 
-	param = NFC_HCI_UICC_HOST_ID;
-	r = nfc_hci_set_param(hdev, NFC_HCI_ADMIN_GATE,
-			      NFC_HCI_ADMIN_WHITELIST, &param, 1);
-	if (r < 0)
-		return r;
+	if (info->se_status->is_ese_present &&
+		info->se_status->is_uicc_present) {
+		white_list[wl_size++] = NFC_HCI_UICC_HOST_ID;
+		white_list[wl_size++] = ST21NFCA_ESE_HOST_ID;
+	} else if (!info->se_status->is_ese_present &&
+			 info->se_status->is_uicc_present) {
+		white_list[wl_size++] = NFC_HCI_UICC_HOST_ID;
+	} else if (info->se_status->is_ese_present &&
+			!info->se_status->is_uicc_present) {
+		white_list[wl_size++] = ST21NFCA_ESE_HOST_ID;
+	}
+
+	if (wl_size) {
+		r = nfc_hci_set_param(hdev, NFC_HCI_ADMIN_GATE,
+					NFC_HCI_ADMIN_WHITELIST,
+					(u8 *) &white_list, wl_size);
+		if (r < 0)
+			return r;
+	}
 
 	/* Set NFC_MODE in device management gate to enable */
 	r = nfc_hci_get_param(hdev, ST21NFCA_DEVICE_MGNT_GATE,
@@ -254,8 +299,9 @@ static int st21nfca_hci_ready(struct nfc_hci_dev *hdev)
 	if (r < 0)
 		return r;
 
-	if (skb->data[0] == 0) {
-		kfree_skb(skb);
+	param = skb->data[0];
+	kfree_skb(skb);
+	if (param == 0) {
 		param = 1;
 
 		r = nfc_hci_set_param(hdev, ST21NFCA_DEVICE_MGNT_GATE,
@@ -299,6 +345,9 @@ static int st21nfca_hci_start_poll(struct nfc_hci_dev *hdev,
 				   u32 im_protocols, u32 tm_protocols)
 {
 	int r;
+	u32 pol_req;
+	u8 param[19];
+	struct sk_buff *datarate_skb;
 
 	pr_info(DRIVER_DESC ": %s protocols 0x%x 0x%x\n",
 		__func__, im_protocols, tm_protocols);
@@ -331,6 +380,31 @@ static int st21nfca_hci_start_poll(struct nfc_hci_dev *hdev,
 					ST21NFCA_RF_READER_F_GATE);
 			if (r < 0)
 				return r;
+		} else {
+			hdev->gb = nfc_get_local_general_bytes(hdev->ndev,
+							       &hdev->gb_len);
+
+			if (hdev->gb == NULL || hdev->gb_len == 0) {
+				im_protocols &= ~NFC_PROTO_NFC_DEP_MASK;
+				tm_protocols &= ~NFC_PROTO_NFC_DEP_MASK;
+			}
+
+			param[0] = ST21NFCA_RF_READER_F_DATARATE_106 |
+			    ST21NFCA_RF_READER_F_DATARATE_212 |
+			    ST21NFCA_RF_READER_F_DATARATE_424;
+			r = nfc_hci_set_param(hdev, ST21NFCA_RF_READER_F_GATE,
+					      ST21NFCA_RF_READER_F_DATARATE,
+					      param, 1);
+			if (r < 0)
+				return r;
+
+			pol_req = be32_to_cpu((__force __be32)
+					ST21NFCA_RF_READER_F_POL_REQ_DEFAULT);
+			r = nfc_hci_set_param(hdev, ST21NFCA_RF_READER_F_GATE,
+					      ST21NFCA_RF_READER_F_POL_REQ,
+					      (u8 *) &pol_req, 4);
+			if (r < 0)
+				return r;
 		}
 
 		if ((ST21NFCA_RF_READER_14443_3_A_GATE & im_protocols) == 0) {
@@ -353,7 +427,105 @@ static int st21nfca_hci_start_poll(struct nfc_hci_dev *hdev,
 			nfc_hci_send_event(hdev, NFC_HCI_RF_READER_A_GATE,
 					   NFC_HCI_EVT_END_OPERATION, NULL, 0);
 	}
+
+	if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {
+		r = nfc_hci_get_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_DATARATE,
+				      &datarate_skb);
+		if (r < 0)
+			return r;
+
+		/* Configure the maximum supported datarate to 424Kbps */
+		if (datarate_skb->len > 0 &&
+		    datarate_skb->data[0] !=
+		    ST21NFCA_RF_CARD_F_DATARATE_212_424) {
+			param[0] = ST21NFCA_RF_CARD_F_DATARATE_212_424;
+			r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+					      ST21NFCA_RF_CARD_F_DATARATE,
+					      param, 1);
+			if (r < 0) {
+				kfree_skb(datarate_skb);
+				return r;
+			}
+		}
+		kfree_skb(datarate_skb);
+
+		/*
+		 * Configure sens_res
+		 *
+		 * NFC Forum Digital Spec Table 7:
+		 * NFCID1 size: triple (10 bytes)
+		 */
+		param[0] = 0x00;
+		param[1] = 0x08;
+		r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_SENS_RES, param, 2);
+		if (r < 0)
+			return r;
+
+		/*
+		 * Configure sel_res
+		 *
+		 * NFC Forum Digistal Spec Table 17:
+		 * b3 set to 0b (value b7-b6):
+		 * - 10b: Configured for NFC-DEP Protocol
+		 */
+		param[0] = 0x40;
+		r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_SEL_RES, param, 1);
+		if (r < 0)
+			return r;
+
+		/* Configure NFCID1 Random uid */
+		r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_NFCID1, NULL, 0);
+		if (r < 0)
+			return r;
+
+		/* Configure NFCID2_LIST */
+		/* System Code */
+		param[0] = 0x00;
+		param[1] = 0x00;
+		/* NFCID2 */
+		param[2] = 0x01;
+		param[3] = 0xfe;
+		param[4] = 'S';
+		param[5] = 'T';
+		param[6] = 'M';
+		param[7] = 'i';
+		param[8] = 'c';
+		param[9] = 'r';
+		/* 8 byte Pad bytes used for polling respone frame */
+
+		/*
+		 * Configuration byte:
+		 * - bit 0: define the default NFCID2 entry used when the
+		 * system code is equal to 'FFFF'
+		 * - bit 1: use a random value for lowest 6 bytes of
+		 * NFCID2 value
+		 * - bit 2: ignore polling request frame if request code
+		 * is equal to '01'
+		 * - Other bits are RFU
+		 */
+		param[18] = 0x01;
+		r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_NFCID2_LIST, param,
+				      19);
+		if (r < 0)
+			return r;
+
+		param[0] = 0x02;
+		r = nfc_hci_set_param(hdev, ST21NFCA_RF_CARD_F_GATE,
+				      ST21NFCA_RF_CARD_F_MODE, param, 1);
+	}
+
 	return r;
+}
+
+static void st21nfca_hci_stop_poll(struct nfc_hci_dev *hdev)
+{
+	nfc_hci_send_cmd(hdev, ST21NFCA_DEVICE_MGNT_GATE,
+			ST21NFCA_DM_DISCONNECT, NULL, 0, NULL);
 }
 
 static int st21nfca_get_iso14443_3_atqa(struct nfc_hci_dev *hdev, u16 *atqa)
@@ -400,7 +572,7 @@ exit:
 	return r;
 }
 
-static int st21nfca_get_iso14443_3_uid(struct nfc_hci_dev *hdev, u8 *gate,
+static int st21nfca_get_iso14443_3_uid(struct nfc_hci_dev *hdev, u8 *uid,
 				       int *len)
 {
 	int r;
@@ -416,7 +588,7 @@ static int st21nfca_get_iso14443_3_uid(struct nfc_hci_dev *hdev, u8 *gate,
 		goto exit;
 	}
 
-	gate = uid_skb->data;
+	memcpy(uid, uid_skb->data, uid_skb->len);
 	*len = uid_skb->len;
 exit:
 	kfree_skb(uid_skb);
@@ -449,6 +621,26 @@ static int st21nfca_get_iso15693_inventory(struct nfc_hci_dev *hdev,
 exit:
 	kfree_skb(inventory_skb);
 	return r;
+}
+
+static int st21nfca_hci_dep_link_up(struct nfc_hci_dev *hdev,
+				    struct nfc_target *target, u8 comm_mode,
+				    u8 *gb, size_t gb_len)
+{
+	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
+
+	info->dep_info.idx = target->idx;
+	return st21nfca_im_send_atr_req(hdev, gb, gb_len);
+}
+
+static int st21nfca_hci_dep_link_down(struct nfc_hci_dev *hdev)
+{
+	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
+
+	info->state = ST21NFCA_ST_READY;
+
+	return nfc_hci_send_cmd(hdev, ST21NFCA_DEVICE_MGNT_GATE,
+				ST21NFCA_DM_DISCONNECT, NULL, 0, NULL);
 }
 
 static int st21nfca_hci_target_from_gate(struct nfc_hci_dev *hdev, u8 gate,
@@ -505,6 +697,70 @@ static int st21nfca_hci_target_from_gate(struct nfc_hci_dev *hdev, u8 gate,
 	return 0;
 }
 
+static int st21nfca_hci_complete_target_discovered(struct nfc_hci_dev *hdev,
+						u8 gate,
+						struct nfc_target *target)
+{
+	int r;
+	struct sk_buff *nfcid_skb = NULL;
+
+	if (gate == ST21NFCA_RF_READER_F_GATE) {
+		r = nfc_hci_get_param(hdev, ST21NFCA_RF_READER_F_GATE,
+				ST21NFCA_RF_READER_F_NFCID2, &nfcid_skb);
+		if (r < 0)
+			goto exit;
+
+		if (nfcid_skb->len > NFC_SENSF_RES_MAXSIZE) {
+			r = -EPROTO;
+			goto exit;
+		}
+
+		/*
+		 * - After the recepton of polling response for type F frame
+		 * at 212 or 424 Kbit/s, NFCID2 registry parameters will be
+		 * updated.
+		 * - After the reception of SEL_RES with NFCIP-1 compliant bit
+		 * set for type A frame NFCID1 will be updated
+		 */
+		if (nfcid_skb->len > 0) {
+			/* P2P in type F */
+			memcpy(target->sensf_res, nfcid_skb->data,
+				nfcid_skb->len);
+			target->sensf_res_len = nfcid_skb->len;
+			/* NFC Forum Digital Protocol Table 44 */
+			if (target->sensf_res[0] == 0x01 &&
+			    target->sensf_res[1] == 0xfe)
+				target->supported_protocols =
+							NFC_PROTO_NFC_DEP_MASK;
+			else
+				target->supported_protocols =
+							NFC_PROTO_FELICA_MASK;
+		} else {
+			kfree_skb(nfcid_skb);
+			/* P2P in type A */
+			r = nfc_hci_get_param(hdev, ST21NFCA_RF_READER_F_GATE,
+					ST21NFCA_RF_READER_F_NFCID1,
+					&nfcid_skb);
+			if (r < 0)
+				goto exit;
+
+			if (nfcid_skb->len > NFC_NFCID1_MAXSIZE) {
+				r = -EPROTO;
+				goto exit;
+			}
+			memcpy(target->sensf_res, nfcid_skb->data,
+				nfcid_skb->len);
+			target->sensf_res_len = nfcid_skb->len;
+			target->supported_protocols = NFC_PROTO_NFC_DEP_MASK;
+		}
+		target->hci_reader_gate = ST21NFCA_RF_READER_F_GATE;
+	}
+	r = 1;
+exit:
+	kfree_skb(nfcid_skb);
+	return r;
+}
+
 #define ST21NFCA_CB_TYPE_READER_ISO15693 1
 static void st21nfca_hci_data_exchange_cb(void *context, struct sk_buff *skb,
 					  int err)
@@ -541,6 +797,9 @@ static int st21nfca_hci_im_transceive(struct nfc_hci_dev *hdev,
 
 	switch (target->hci_reader_gate) {
 	case ST21NFCA_RF_READER_F_GATE:
+		if (target->supported_protocols == NFC_PROTO_NFC_DEP_MASK)
+			return st21nfca_im_send_dep_req(hdev, skb);
+
 		*skb_push(skb, 1) = 0x1a;
 		return nfc_hci_send_cmd_async(hdev, target->hci_reader_gate,
 					      ST21NFCA_WR_XCHG_DATA, skb->data,
@@ -569,10 +828,16 @@ static int st21nfca_hci_im_transceive(struct nfc_hci_dev *hdev,
 	}
 }
 
+static int st21nfca_hci_tm_send(struct nfc_hci_dev *hdev, struct sk_buff *skb)
+{
+	return st21nfca_tm_send_dep_res(hdev, skb);
+}
+
 static int st21nfca_hci_check_presence(struct nfc_hci_dev *hdev,
 				       struct nfc_target *target)
 {
 	u8 fwi = 0x11;
+
 	switch (target->hci_reader_gate) {
 	case NFC_HCI_RF_READER_A_GATE:
 	case NFC_HCI_RF_READER_B_GATE:
@@ -594,6 +859,84 @@ static int st21nfca_hci_check_presence(struct nfc_hci_dev *hdev,
 	}
 }
 
+static void st21nfca_hci_cmd_received(struct nfc_hci_dev *hdev, u8 pipe, u8 cmd,
+				struct sk_buff *skb)
+{
+	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
+	u8 gate = hdev->pipes[pipe].gate;
+
+	pr_debug("cmd: %x\n", cmd);
+
+	switch (cmd) {
+	case NFC_HCI_ANY_OPEN_PIPE:
+		if (gate != ST21NFCA_APDU_READER_GATE &&
+			hdev->pipes[pipe].dest_host != NFC_HCI_UICC_HOST_ID)
+			info->se_info.count_pipes++;
+
+		if (info->se_info.count_pipes == info->se_info.expected_pipes) {
+			del_timer_sync(&info->se_info.se_active_timer);
+			info->se_info.se_active = false;
+			info->se_info.count_pipes = 0;
+			complete(&info->se_info.req_completion);
+		}
+	break;
+	}
+}
+
+static int st21nfca_admin_event_received(struct nfc_hci_dev *hdev, u8 event,
+					struct sk_buff *skb)
+{
+	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
+
+	pr_debug("admin event: %x\n", event);
+
+	switch (event) {
+	case ST21NFCA_EVT_HOT_PLUG:
+		if (info->se_info.se_active) {
+			if (!ST21NFCA_EVT_HOT_PLUG_IS_INHIBITED(skb)) {
+				del_timer_sync(&info->se_info.se_active_timer);
+				info->se_info.se_active = false;
+				complete(&info->se_info.req_completion);
+			} else {
+				mod_timer(&info->se_info.se_active_timer,
+					jiffies +
+					msecs_to_jiffies(ST21NFCA_SE_TO_PIPES));
+			}
+		}
+	break;
+	}
+	kfree_skb(skb);
+	return 0;
+}
+
+/*
+ * Returns:
+ * <= 0: driver handled the event, skb consumed
+ *    1: driver does not handle the event, please do standard processing
+ */
+static int st21nfca_hci_event_received(struct nfc_hci_dev *hdev, u8 pipe,
+				       u8 event, struct sk_buff *skb)
+{
+	u8 gate = hdev->pipes[pipe].gate;
+	u8 host = hdev->pipes[pipe].dest_host;
+
+	pr_debug("hci event: %d gate: %x\n", event, gate);
+
+	switch (gate) {
+	case NFC_HCI_ADMIN_GATE:
+		return st21nfca_admin_event_received(hdev, event, skb);
+	case ST21NFCA_RF_CARD_F_GATE:
+		return st21nfca_dep_event_received(hdev, event, skb);
+	case ST21NFCA_CONNECTIVITY_GATE:
+		return st21nfca_connectivity_event_received(hdev, host,
+							event, skb);
+	case ST21NFCA_APDU_READER_GATE:
+		return st21nfca_apdu_reader_event_received(hdev, event, skb);
+	default:
+		return 1;
+	}
+}
+
 static struct nfc_hci_ops st21nfca_hci_ops = {
 	.open = st21nfca_hci_open,
 	.close = st21nfca_hci_close,
@@ -601,14 +944,26 @@ static struct nfc_hci_ops st21nfca_hci_ops = {
 	.hci_ready = st21nfca_hci_ready,
 	.xmit = st21nfca_hci_xmit,
 	.start_poll = st21nfca_hci_start_poll,
+	.stop_poll = st21nfca_hci_stop_poll,
+	.dep_link_up = st21nfca_hci_dep_link_up,
+	.dep_link_down = st21nfca_hci_dep_link_down,
 	.target_from_gate = st21nfca_hci_target_from_gate,
+	.complete_target_discovered = st21nfca_hci_complete_target_discovered,
 	.im_transceive = st21nfca_hci_im_transceive,
+	.tm_send = st21nfca_hci_tm_send,
 	.check_presence = st21nfca_hci_check_presence,
+	.event_received = st21nfca_hci_event_received,
+	.cmd_received = st21nfca_hci_cmd_received,
+	.discover_se = st21nfca_hci_discover_se,
+	.enable_se = st21nfca_hci_enable_se,
+	.disable_se = st21nfca_hci_disable_se,
+	.se_io = st21nfca_hci_se_io,
 };
 
 int st21nfca_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops,
 		       char *llc_name, int phy_headroom, int phy_tailroom,
-		       int phy_payload, struct nfc_hci_dev **hdev)
+		       int phy_payload, struct nfc_hci_dev **hdev,
+			   struct st21nfca_se_status *se_status)
 {
 	struct st21nfca_hci_info *info;
 	int r = 0;
@@ -637,8 +992,11 @@ int st21nfca_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops,
 	 * persistent info to discriminate 2 identical chips
 	 */
 	dev_num = find_first_zero_bit(dev_mask, ST21NFCA_NUM_DEVICES);
+
 	if (dev_num >= ST21NFCA_NUM_DEVICES)
-		goto err_alloc_hdev;
+		return -ENODEV;
+
+	set_bit(dev_num, dev_mask);
 
 	scnprintf(init_data.session_id, sizeof(init_data.session_id), "%s%2x",
 		  "ST21AH", dev_num);
@@ -648,7 +1006,8 @@ int st21nfca_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops,
 	    NFC_PROTO_FELICA_MASK |
 	    NFC_PROTO_ISO14443_MASK |
 	    NFC_PROTO_ISO14443_B_MASK |
-	    NFC_PROTO_ISO15693_MASK;
+	    NFC_PROTO_ISO15693_MASK |
+	    NFC_PROTO_NFC_DEP_MASK;
 
 	set_bit(NFC_HCI_QUIRK_SHORT_CLEAR, &quirks);
 
@@ -664,6 +1023,8 @@ int st21nfca_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops,
 		goto err_alloc_hdev;
 	}
 
+	info->se_status = se_status;
+
 	nfc_hci_set_clientdata(info->hdev, info);
 
 	r = nfc_hci_register_device(info->hdev);
@@ -671,6 +1032,8 @@ int st21nfca_hci_probe(void *phy_id, struct nfc_phy_ops *phy_ops,
 		goto err_regdev;
 
 	*hdev = info->hdev;
+	st21nfca_dep_init(info->hdev);
+	st21nfca_se_init(info->hdev);
 
 	return 0;
 
@@ -688,6 +1051,8 @@ void st21nfca_hci_remove(struct nfc_hci_dev *hdev)
 {
 	struct st21nfca_hci_info *info = nfc_hci_get_clientdata(hdev);
 
+	st21nfca_dep_deinit(hdev);
+	st21nfca_se_deinit(hdev);
 	nfc_hci_unregister_device(hdev);
 	nfc_hci_free_device(hdev);
 	kfree(info);

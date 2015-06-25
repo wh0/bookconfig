@@ -187,7 +187,7 @@ encode_fattr(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp,
 	*p++ = htonl((u32) stat->ino);
 	*p++ = htonl((u32) stat->atime.tv_sec);
 	*p++ = htonl(stat->atime.tv_nsec ? stat->atime.tv_nsec / 1000 : 0);
-	lease_get_mtime(dentry->d_inode, &time); 
+	lease_get_mtime(d_inode(dentry), &time); 
 	*p++ = htonl((u32) time.tv_sec);
 	*p++ = htonl(time.tv_nsec ? time.tv_nsec / 1000 : 0); 
 	*p++ = htonl((u32) stat->ctime.tv_sec);
@@ -257,8 +257,7 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p,
 	len = args->count     = ntohl(*p++);
 	p++; /* totalcount - unused */
 
-	if (len > NFSSVC_MAXBLKSIZE_V2)
-		len = NFSSVC_MAXBLKSIZE_V2;
+	len = min_t(unsigned int, len, NFSSVC_MAXBLKSIZE_V2);
 
 	/* set up somewhere to store response.
 	 * We take pages, put them on reslist and include in iovec
@@ -268,7 +267,7 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p,
 		struct page *p = *(rqstp->rq_next_page++);
 
 		rqstp->rq_vec[v].iov_base = page_address(p);
-		rqstp->rq_vec[v].iov_len = len < PAGE_SIZE?len:PAGE_SIZE;
+		rqstp->rq_vec[v].iov_len = min_t(unsigned int, len, PAGE_SIZE);
 		len -= rqstp->rq_vec[v].iov_len;
 		v++;
 	}
@@ -400,9 +399,7 @@ nfssvc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p,
 		return 0;
 	args->cookie = ntohl(*p++);
 	args->count  = ntohl(*p++);
-	if (args->count > PAGE_SIZE)
-		args->count = PAGE_SIZE;
-
+	args->count  = min_t(u32, args->count, PAGE_SIZE);
 	args->buffer = page_address(*(rqstp->rq_next_page++));
 
 	return xdr_argsize_check(rqstp, p);
@@ -516,10 +513,11 @@ nfssvc_encode_entry(void *ccdv, const char *name,
 	}
 	if (cd->offset)
 		*cd->offset = htonl(offset);
-	if (namlen > NFS2_MAXNAMLEN)
-		namlen = NFS2_MAXNAMLEN;/* truncate filename */
 
+	/* truncate filename */
+	namlen = min(namlen, NFS2_MAXNAMLEN);
 	slen = XDR_QUADLEN(namlen);
+
 	if ((buflen = cd->buflen - slen - 4) < 0) {
 		cd->common.err = nfserr_toosmall;
 		return -EINVAL;

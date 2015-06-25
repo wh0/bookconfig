@@ -249,7 +249,7 @@ phys_addr_t memblock_alloc(phys_addr_t size, phys_addr_t align);
 /*
  * Set the allocation direction to bottom-up or top-down.
  */
-static inline void memblock_set_bottom_up(bool enable)
+static inline void __init memblock_set_bottom_up(bool enable)
 {
 	memblock.bottom_up = enable;
 }
@@ -264,7 +264,7 @@ static inline bool memblock_bottom_up(void)
 	return memblock.bottom_up;
 }
 #else
-static inline void memblock_set_bottom_up(bool enable) {}
+static inline void __init memblock_set_bottom_up(bool enable) {}
 static inline bool memblock_bottom_up(void) { return false; }
 #endif
 
@@ -363,6 +363,14 @@ static inline unsigned long memblock_region_reserved_end_pfn(const struct memblo
 #else
 #define __init_memblock
 #define __initdata_memblock
+#endif
+
+#ifdef CONFIG_MEMTEST
+extern void early_memtest(phys_addr_t start, phys_addr_t end);
+#else
+static inline void early_memtest(phys_addr_t start, phys_addr_t end)
+{
+}
 #endif
 
 #else

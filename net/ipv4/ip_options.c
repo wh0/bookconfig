@@ -87,16 +87,14 @@ void ip_options_build(struct sk_buff *skb, struct ip_options *opt,
  * NOTE: dopt cannot point to skb.
  */
 
-int ip_options_echo(struct ip_options *dopt, struct sk_buff *skb)
+int __ip_options_echo(struct ip_options *dopt, struct sk_buff *skb,
+		      const struct ip_options *sopt)
 {
-	const struct ip_options *sopt;
 	unsigned char *sptr, *dptr;
 	int soffset, doffset;
 	int	optlen;
 
 	memset(dopt, 0, sizeof(struct ip_options));
-
-	sopt = &(IPCB(skb)->opt);
 
 	if (sopt->optlen == 0)
 		return 0;
@@ -266,7 +264,7 @@ int ip_options_compile(struct net *net,
 	unsigned char *iph;
 	int optlen, l;
 
-	if (skb != NULL) {
+	if (skb) {
 		rt = skb_rtable(skb);
 		optptr = (unsigned char *)&(ip_hdr(skb)[1]);
 	} else

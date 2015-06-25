@@ -26,15 +26,15 @@
 
 #include <brcmu_utils.h>
 #include <brcmu_wifi.h>
-#include "dhd.h"
-#include "dhd_dbg.h"
-#include "dhd_bus.h"
+#include "core.h"
+#include "debug.h"
+#include "bus.h"
 #include "fwil.h"
 #include "fwil_types.h"
 #include "fweh.h"
 #include "fwsignal.h"
 #include "p2p.h"
-#include "wl_cfg80211.h"
+#include "cfg80211.h"
 #include "proto.h"
 
 /**
@@ -452,6 +452,34 @@ struct brcmf_fws_macdesc_table {
 	struct brcmf_fws_mac_descriptor nodes[BRCMF_FWS_MAC_DESC_TABLE_SIZE];
 	struct brcmf_fws_mac_descriptor iface[BRCMF_MAX_IFS];
 	struct brcmf_fws_mac_descriptor other;
+};
+
+struct brcmf_fws_stats {
+	u32 tlv_parse_failed;
+	u32 tlv_invalid_type;
+	u32 header_only_pkt;
+	u32 header_pulls;
+	u32 pkt2bus;
+	u32 send_pkts[5];
+	u32 requested_sent[5];
+	u32 generic_error;
+	u32 mac_update_failed;
+	u32 mac_ps_update_failed;
+	u32 if_update_failed;
+	u32 packet_request_failed;
+	u32 credit_request_failed;
+	u32 rollback_success;
+	u32 rollback_failed;
+	u32 delayq_full_error;
+	u32 supprq_full_error;
+	u32 txs_indicate;
+	u32 txs_discard;
+	u32 txs_supp_core;
+	u32 txs_supp_ps;
+	u32 txs_tossed;
+	u32 txs_host_tossed;
+	u32 bus_flow_block;
+	u32 fws_flow_block;
 };
 
 struct brcmf_fws_info {
@@ -1608,7 +1636,7 @@ int brcmf_fws_hdrpull(struct brcmf_pub *drvr, int ifidx, s16 signal_len,
 	if (!signal_len)
 		return 0;
 	/* if flow control disabled, skip to packet data and leave */
-	if (!fws->fw_signals) {
+	if ((!fws) || (!fws->fw_signals)) {
 		skb_pull(skb, signal_len);
 		return 0;
 	}
@@ -2017,6 +2045,75 @@ static void brcmf_fws_dequeue_worker(struct work_struct *worker)
 	brcmf_fws_unlock(fws);
 }
 
+#ifdef DEBUG
+static int brcmf_debugfs_fws_stats_read(struct seq_file *seq, void *data)
+{
+	struct brcmf_bus *bus_if = dev_get_drvdata(seq->private);
+	struct brcmf_fws_stats *fwstats = &bus_if->drvr->fws->stats;
+
+	seq_printf(seq,
+		   "header_pulls:      %u\n"
+		   "header_only_pkt:   %u\n"
+		   "tlv_parse_failed:  %u\n"
+		   "tlv_invalid_type:  %u\n"
+		   "mac_update_fails:  %u\n"
+		   "ps_update_fails:   %u\n"
+		   "if_update_fails:   %u\n"
+		   "pkt2bus:           %u\n"
+		   "generic_error:     %u\n"
+		   "rollback_success:  %u\n"
+		   "rollback_failed:   %u\n"
+		   "delayq_full:       %u\n"
+		   "supprq_full:       %u\n"
+		   "txs_indicate:      %u\n"
+		   "txs_discard:       %u\n"
+		   "txs_suppr_core:    %u\n"
+		   "txs_suppr_ps:      %u\n"
+		   "txs_tossed:        %u\n"
+		   "txs_host_tossed:   %u\n"
+		   "bus_flow_block:    %u\n"
+		   "fws_flow_block:    %u\n"
+		   "send_pkts:         BK:%u BE:%u VO:%u VI:%u BCMC:%u\n"
+		   "requested_sent:    BK:%u BE:%u VO:%u VI:%u BCMC:%u\n",
+		   fwstats->header_pulls,
+		   fwstats->header_only_pkt,
+		   fwstats->tlv_parse_failed,
+		   fwstats->tlv_invalid_type,
+		   fwstats->mac_update_failed,
+		   fwstats->mac_ps_update_failed,
+		   fwstats->if_update_failed,
+		   fwstats->pkt2bus,
+		   fwstats->generic_error,
+		   fwstats->rollback_success,
+		   fwstats->rollback_failed,
+		   fwstats->delayq_full_error,
+		   fwstats->supprq_full_error,
+		   fwstats->txs_indicate,
+		   fwstats->txs_discard,
+		   fwstats->txs_supp_core,
+		   fwstats->txs_supp_ps,
+		   fwstats->txs_tossed,
+		   fwstats->txs_host_tossed,
+		   fwstats->bus_flow_block,
+		   fwstats->fws_flow_block,
+		   fwstats->send_pkts[0], fwstats->send_pkts[1],
+		   fwstats->send_pkts[2], fwstats->send_pkts[3],
+		   fwstats->send_pkts[4],
+		   fwstats->requested_sent[0],
+		   fwstats->requested_sent[1],
+		   fwstats->requested_sent[2],
+		   fwstats->requested_sent[3],
+		   fwstats->requested_sent[4]);
+
+	return 0;
+}
+#else
+static int brcmf_debugfs_fws_stats_read(struct seq_file *seq, void *data)
+{
+	return 0;
+}
+#endif
+
 int brcmf_fws_init(struct brcmf_pub *drvr)
 {
 	struct brcmf_fws_info *fws;
@@ -2107,7 +2204,8 @@ int brcmf_fws_init(struct brcmf_pub *drvr)
 			BRCMF_FWS_PSQ_LEN);
 
 	/* create debugfs file for statistics */
-	brcmf_debugfs_create_fws_stats(drvr, &fws->stats);
+	brcmf_debugfs_add_entry(drvr, "fws_stats",
+				brcmf_debugfs_fws_stats_read);
 
 	brcmf_dbg(INFO, "%s bdcv2 tlv signaling [%x]\n",
 		  fws->fw_signals ? "enabled" : "disabled", tlv);

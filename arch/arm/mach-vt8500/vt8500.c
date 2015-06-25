@@ -41,7 +41,7 @@
 
 static void __iomem *pmc_base;
 
-void vt8500_restart(enum reboot_mode mode, const char *cmd)
+static void vt8500_restart(enum reboot_mode mode, const char *cmd)
 {
 	if (pmc_base)
 		writel(1, pmc_base + VT8500_PMSR_REG);
@@ -57,7 +57,7 @@ static struct map_desc vt8500_io_desc[] __initdata = {
 	},
 };
 
-void __init vt8500_map_io(void)
+static void __init vt8500_map_io(void)
 {
 	iotable_init(vt8500_io_desc, ARRAY_SIZE(vt8500_io_desc));
 }
@@ -66,10 +66,10 @@ static void vt8500_power_off(void)
 {
 	local_irq_disable();
 	writew(5, pmc_base + VT8500_HCR_REG);
-	asm("mcr%? p15, 0, %0, c7, c0, 4" : : "r" (0));
+	asm("mcr p15, 0, %0, c7, c0, 4" : : "r" (0));
 }
 
-void __init vt8500_init(void)
+static void __init vt8500_init(void)
 {
 	struct device_node *np;
 	struct device_node *fb;
