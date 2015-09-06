@@ -6,4 +6,4 @@
 # Default-Start:     2 3 4 5
 # Default-Stop:
 ### END INIT INFO
-echo 32 > /sys/devices/soc/d8050800.fb/contrast
+echo 32 > /sys/devices/platform/soc/d8050800.fb/contrast
