@@ -1,0 +1,11 @@
+# These netbooks come with a built-in WiFi adapter, which is connected through
+# USB internally. Debian's systemd settings make it use the MAC address for
+# the adapter's name. But I'd rather ship with hardcoded names in /etc/network,
+# so disable this behavior.
+
+[MATCH]
+Path=platform-d8007100.ehci-usb-0:2.2:1.0
+
+[LINK]
+NamePolicy=
+Name=wlan0
