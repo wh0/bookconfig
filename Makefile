@@ -47,6 +47,6 @@ debs.tar:
 	fakeroot debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
 
 libeatmydata1.deb:
-	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/libeatmydata1_82-6_armel.deb
+	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/libeatmydata1_105-1_armel.deb
 
 .PHONY: all

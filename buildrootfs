@@ -10,7 +10,7 @@ rm -f tmp/sbin/init
 sed < init.template > tmp/sbin/init -e "s,__MIRROR__,$2,g" -e "s,__SUITE__,$3,g"
 chmod 755 tmp/sbin/init
 
-dpkg-deb --fsys-tarfile libeatmydata1.deb | tar -x -C tmp ./usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.1
+dpkg-deb --fsys-tarfile libeatmydata1.deb | tar -x -C tmp ./usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.2
 
 cp -r ship/* tmp
 chmod 600 tmp/etc/wpa_supplicant/wpa_supplicant.conf

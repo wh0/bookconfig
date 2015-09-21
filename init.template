@@ -20,7 +20,7 @@
 	# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=734324
 	# they say that eatmydata speeds up installation
 	# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=700633
-	LD_PRELOAD=/usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.1 /debootstrap/debootstrap --second-stage --no-check-gpg &&
+	LD_PRELOAD=/usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.2 /debootstrap/debootstrap --second-stage --no-check-gpg &&
 
 	# foreign debootstrap can only set up the default mirror in
 	# the second stage, so rewrite it with our selected mirror
@@ -31,7 +31,7 @@
 	adduser --gecos "" "$username" &&
 	adduser "$username" sudo &&
 
-	rm -f /usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.1 &&
+	rm -f /usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.2 &&
 
 	# debootstrap unpacked the real /sbin/init
 	exec /sbin/init
