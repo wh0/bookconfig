@@ -31,8 +31,6 @@
 	adduser --gecos "" "$username" &&
 	adduser "$username" sudo &&
 
-	update-rc.d contrast defaults &&
-
 	rm -f /usr/lib/arm-linux-gnueabi/libeatmydata.so.1.1.1 &&
 
 	# debootstrap unpacked the real /sbin/init
