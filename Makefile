@@ -31,7 +31,7 @@ config: seed | kernel
 	mv $@.tmp $@
 
 kernel:
-	git clone -b kernel "$(shell git config remote.origin.url)" $@
+	git clone --single-branch -b kernel "$(shell git config remote.origin.url)" $@
 
 script/scriptcmd: cmd | script
 	mkimage -A arm -O linux -T script -C none -a 1 -e 0 -n "script image" -d $< $@
