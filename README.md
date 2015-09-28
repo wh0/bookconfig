@@ -51,3 +51,27 @@ It should the internal USB WiFi adapter wlan0.
 This is different from the usual behavior, which names USB-connected links with their physical address.
 
 There are some `/etc/network` scripts that do the GPIO stuff when you use `ifup wlan0` and `ifdown wlan0`.
+
+## Workflow for kernel branch
+
+```
+   upstream v1          upstream v2
+  /                    /
+-o-(mainline changes)-o
+  \                    \
+   (cherry-pick)        (cherry-pick) <- rebase (private)
+    \                    \
+-----o--------------------o <- kernel
+
+```
+The `kernel` branch is a merge commit whose second parent is the changes rebased on some upstream release, and whose first parent is the previous state of the branch.
+That is, the latest rebase is at `kernel^2`, and the previous rebase is at `kernel~^2`, and so on.
+At the end of following the first parent, you'll reach @linux-wmt's `testing` branch (although I probably should have kept it consistent).
+
+1. Privately, do `git checkout -b rebase kernel^2`.
+2. Fetch an upstream version to rebase onto, e.g., with `git fetch --no-tags upstream v4.2`.
+3. Do the rebase, which I guess you would do by `git rebase FETCH_HEAD`.
+4. Create a new commit to link the history with `git commit-tree -p refs/heads/kernel -p HEAD -m "rebase v4.2" HEAD^{tree}`.
+5. Move the `kernel` branch with `git update-ref refs/heads/kernel (whatever the previous step prints)`.
+
+(It's all weird like that to avoid back-and-forth checkouts.)
