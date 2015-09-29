@@ -47,7 +47,7 @@ This includes the non-free `firmware-ralink` package.
 It sets the contrast on boot.
 Use `/etc/udev/rules.d/99-fb-contrast.rules` to get it the way you like.
 
-It should the internal USB WiFi adapter wlan0.
+It should name the internal USB WiFi adapter wlan0.
 This is different from the usual behavior, which names USB-connected links with their physical address.
 
 There are some `/etc/network` scripts that do the GPIO stuff when you use `ifup wlan0` and `ifdown wlan0`.
