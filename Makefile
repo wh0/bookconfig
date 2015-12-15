@@ -6,7 +6,7 @@ MIRROR = http://mirrors.kernel.org/debian
 DEBOOTSTRAP_OPTS = \
 	--foreign \
 	--arch armel \
-	--include sudo,firmware-ralink,isc-dhcp-client,wpasupplicant,ifupdown \
+	--include sudo,firmware-misc-nonfree,isc-dhcp-client,wpasupplicant,ifupdown \
 	--components main,contrib,non-free \
 	--variant minbase
 SUITE = testing
