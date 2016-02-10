@@ -21,7 +21,7 @@ script/uzImage.bin: zImage_w_dtb | script
 	mkimage -A arm -O linux -T kernel -C none -a 0x8000 -e 0x8000 -n linux-vtwm -d $< $@
 
 zImage_w_dtb: config | kernel
-	$(MAKE) -C kernel ARCH=arm KCONFIG_CONFIG=../$< $(KERNEL_OPTS) zImage dtbs
+	$(MAKE) -C kernel ARCH=arm KCONFIG_CONFIG=../$< $(KERNEL_OPTS) zImage wm8505-ref.dtb
 	cat kernel/arch/arm/boot/zImage kernel/arch/arm/boot/dts/wm8505-ref.dtb > $@
 
 config: seed | kernel
