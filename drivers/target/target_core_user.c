@@ -25,6 +25,7 @@
 #include <linux/parser.h>
 #include <linux/vmalloc.h>
 #include <linux/uio_driver.h>
+#include <linux/stringify.h>
 #include <net/genetlink.h>
 #include <scsi/scsi_common.h>
 #include <scsi/scsi_proto.h>
@@ -538,14 +539,8 @@ static void tcmu_handle_completion(struct tcmu_cmd *cmd, struct tcmu_cmd_entry *
 		UPDATE_HEAD(udev->data_tail, cmd->data_length, udev->data_size);
 		pr_warn("TCMU: Userspace set UNKNOWN_OP flag on se_cmd %p\n",
 			cmd->se_cmd);
-		transport_generic_request_failure(cmd->se_cmd,
-			TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE);
-		cmd->se_cmd = NULL;
-		kmem_cache_free(tcmu_cmd_cache, cmd);
-		return;
-	}
-
-	if (entry->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
+		entry->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
+	} else if (entry->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
 		memcpy(se_cmd->sense_buffer, entry->rsp.sense_buffer,
 			       se_cmd->scsi_sense_length);
 
@@ -577,7 +572,6 @@ static void tcmu_handle_completion(struct tcmu_cmd *cmd, struct tcmu_cmd_entry *
 static unsigned int tcmu_handle_completions(struct tcmu_dev *udev)
 {
 	struct tcmu_mailbox *mb;
-	LIST_HEAD(cpl_cmds);
 	unsigned long flags;
 	int handled = 0;
 
@@ -644,7 +638,7 @@ static int tcmu_check_expired_cmd(int id, void *p, void *data)
 	if (test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags))
 		return 0;
 
-	if (!time_after(cmd->deadline, jiffies))
+	if (!time_after(jiffies, cmd->deadline))
 		return 0;
 
 	set_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags);
@@ -905,7 +899,7 @@ static int tcmu_configure_device(struct se_device *dev)
 	WARN_ON(!PAGE_ALIGNED(udev->data_off));
 	WARN_ON(udev->data_size % PAGE_SIZE);
 
-	info->version = xstr(TCMU_MAILBOX_VERSION);
+	info->version = __stringify(TCMU_MAILBOX_VERSION);
 
 	info->mem[0].name = "tcm-user command & data buffer";
 	info->mem[0].addr = (phys_addr_t) udev->mb_addr;
@@ -1107,8 +1101,6 @@ tcmu_parse_cdb(struct se_cmd *cmd)
 
 static const struct target_backend_ops tcmu_ops = {
 	.name			= "user",
-	.inquiry_prod		= "USER",
-	.inquiry_rev		= TCMU_VERSION,
 	.owner			= THIS_MODULE,
 	.transport_flags	= TRANSPORT_FLAG_PASSTHROUGH,
 	.attach_hba		= tcmu_attach_hba,

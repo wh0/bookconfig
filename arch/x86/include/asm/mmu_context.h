@@ -33,6 +33,7 @@ static inline void load_mm_cr4(struct mm_struct *mm)
 static inline void load_mm_cr4(struct mm_struct *mm) {}
 #endif
 
+#ifdef CONFIG_MODIFY_LDT_SYSCALL
 /*
  * ldt_structs can be allocated, used, and freed, but they are never
  * modified while live.
@@ -48,8 +49,23 @@ struct ldt_struct {
 	int size;
 };
 
+/*
+ * Used for LDT copy/destruction.
+ */
+int init_new_context(struct task_struct *tsk, struct mm_struct *mm);
+void destroy_context(struct mm_struct *mm);
+#else	/* CONFIG_MODIFY_LDT_SYSCALL */
+static inline int init_new_context(struct task_struct *tsk,
+				   struct mm_struct *mm)
+{
+	return 0;
+}
+static inline void destroy_context(struct mm_struct *mm) {}
+#endif
+
 static inline void load_mm_ldt(struct mm_struct *mm)
 {
+#ifdef CONFIG_MODIFY_LDT_SYSCALL
 	struct ldt_struct *ldt;
 
 	/* lockless_dereference synchronizes with smp_store_release */
@@ -73,16 +89,12 @@ static inline void load_mm_ldt(struct mm_struct *mm)
 		set_ldt(ldt->entries, ldt->size);
 	else
 		clear_LDT();
+#else
+	clear_LDT();
+#endif
 
 	DEBUG_LOCKS_WARN_ON(preemptible());
 }
-
-/*
- * Used for LDT copy/destruction.
- */
-int init_new_context(struct task_struct *tsk, struct mm_struct *mm);
-void destroy_context(struct mm_struct *mm);
-
 
 static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
@@ -104,8 +116,36 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 #endif
 		cpumask_set_cpu(cpu, mm_cpumask(next));
 
-		/* Re-load page tables */
+		/*
+		 * Re-load page tables.
+		 *
+		 * This logic has an ordering constraint:
+		 *
+		 *  CPU 0: Write to a PTE for 'next'
+		 *  CPU 0: load bit 1 in mm_cpumask.  if nonzero, send IPI.
+		 *  CPU 1: set bit 1 in next's mm_cpumask
+		 *  CPU 1: load from the PTE that CPU 0 writes (implicit)
+		 *
+		 * We need to prevent an outcome in which CPU 1 observes
+		 * the new PTE value and CPU 0 observes bit 1 clear in
+		 * mm_cpumask.  (If that occurs, then the IPI will never
+		 * be sent, and CPU 0's TLB will contain a stale entry.)
+		 *
+		 * The bad outcome can occur if either CPU's load is
+		 * reordered before that CPU's store, so both CPUs must
+		 * execute full barriers to prevent this from happening.
+		 *
+		 * Thus, switch_mm needs a full barrier between the
+		 * store to mm_cpumask and any operation that could load
+		 * from next->pgd.  TLB fills are special and can happen
+		 * due to instruction fetches or for no reason at all,
+		 * and neither LOCK nor MFENCE orders them.
+		 * Fortunately, load_cr3() is serializing and gives the
+		 * ordering guarantee we need.
+		 *
+		 */
 		load_cr3(next->pgd);
+
 		trace_tlb_flush(TLB_FLUSH_ON_TASK_SWITCH, TLB_FLUSH_ALL);
 
 		/* Stop flush ipis for the previous mm */
@@ -114,6 +154,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		/* Load per-mm CR4 state */
 		load_mm_cr4(next);
 
+#ifdef CONFIG_MODIFY_LDT_SYSCALL
 		/*
 		 * Load the LDT, if the LDT is different.
 		 *
@@ -128,6 +169,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		 */
 		if (unlikely(prev->context.ldt != next->context.ldt))
 			load_mm_ldt(next);
+#endif
 	}
 #ifdef CONFIG_SMP
 	  else {
@@ -142,10 +184,14 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 			 * schedule, protecting us from simultaneous changes.
 			 */
 			cpumask_set_cpu(cpu, mm_cpumask(next));
+
 			/*
 			 * We were in lazy tlb mode and leave_mm disabled
 			 * tlb flush IPI delivery. We must reload CR3
 			 * to make sure to use no freed page tables.
+			 *
+			 * As above, load_cr3() is serializing and orders TLB
+			 * fills with respect to the mm_cpumask write.
 			 */
 			load_cr3(next->pgd);
 			trace_tlb_flush(TLB_FLUSH_ON_TASK_SWITCH, TLB_FLUSH_ALL);

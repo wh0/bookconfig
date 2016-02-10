@@ -67,6 +67,7 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 	 * VM_PFNMAP flag that was set by drm_gem_mmap_obj()/drm_gem_mmap().
 	 */
 	vma->vm_flags &= ~VM_PFNMAP;
+	vma->vm_pgoff = 0;
 
 	ret = dma_mmap_attrs(drm->dev, vma, rk_obj->kvaddr, rk_obj->dma_addr,
 			     obj->size, &rk_obj->dma_attrs);
@@ -79,12 +80,9 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 int rockchip_gem_mmap_buf(struct drm_gem_object *obj,
 			  struct vm_area_struct *vma)
 {
-	struct drm_device *drm = obj->dev;
 	int ret;
 
-	mutex_lock(&drm->struct_mutex);
 	ret = drm_gem_mmap_obj(obj, obj->size, vma);
-	mutex_unlock(&drm->struct_mutex);
 	if (ret)
 		return ret;
 
@@ -200,13 +198,10 @@ int rockchip_gem_dumb_map_offset(struct drm_file *file_priv,
 	struct drm_gem_object *obj;
 	int ret;
 
-	mutex_lock(&dev->struct_mutex);
-
 	obj = drm_gem_object_lookup(dev, file_priv, handle);
 	if (!obj) {
 		DRM_ERROR("failed to lookup gem object.\n");
-		ret = -EINVAL;
-		goto unlock;
+		return -EINVAL;
 	}
 
 	ret = drm_gem_create_mmap_offset(obj);
@@ -217,10 +212,9 @@ int rockchip_gem_dumb_map_offset(struct drm_file *file_priv,
 	DRM_DEBUG_KMS("offset = 0x%llx\n", *offset);
 
 out:
-	drm_gem_object_unreference(obj);
-unlock:
-	mutex_unlock(&dev->struct_mutex);
-	return ret;
+	drm_gem_object_unreference_unlocked(obj);
+
+	return 0;
 }
 
 /*

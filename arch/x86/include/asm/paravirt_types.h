@@ -70,8 +70,13 @@ struct pv_info {
 #endif
 
 	int paravirt_enabled;
+	unsigned int features;	  /* valid only if paravirt_enabled is set */
 	const char *name;
 };
+
+#define paravirt_has(x) paravirt_has_feature(PV_SUPPORTED_##x)
+/* Supported features */
+#define PV_SUPPORTED_RTC        (1<<0)
 
 struct pv_init_ops {
 	/*
@@ -97,7 +102,6 @@ struct pv_lazy_ops {
 struct pv_time_ops {
 	unsigned long long (*sched_clock)(void);
 	unsigned long long (*steal_clock)(int cpu);
-	unsigned long (*get_tsc_khz)(void);
 };
 
 struct pv_cpu_ops {
@@ -156,9 +160,7 @@ struct pv_cpu_ops {
 	u64 (*read_msr)(unsigned int msr, int *err);
 	int (*write_msr)(unsigned int msr, unsigned low, unsigned high);
 
-	u64 (*read_tsc)(void);
 	u64 (*read_pmc)(int counter);
-	unsigned long long (*read_tscp)(unsigned int *aux);
 
 #ifdef CONFIG_X86_32
 	/*
