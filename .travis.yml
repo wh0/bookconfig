@@ -2,18 +2,18 @@ language: c
 addons:
   apt:
     packages:
-      - bc
-      - gcc-arm-linux-gnueabi
-      - u-boot-tools
-      - debian-archive-keyring
-      - debootstrap
+    - bc
+    - gcc-arm-linux-gnueabi
+    - u-boot-tools
+    - debian-archive-keyring
+    - debootstrap
 script: make
 deploy:
   provider: releases
   api_key:
-    secure: IUxqX9zeAQgR7rzVpLH7sj44JvCqCHNpEJxtwjLrn5573Pw/LBknZCIdmVUeVHqxfiQKVoOxwQ34y7oIBGwXcJWsZS3akxztuxJ0uzN9IK3M2EYvF/oflmaV0MtVKLsdGaDgmciawUXuYObeTdhdkNiEvVngNvp9b/GrClBxLH0wmHqm3LN/zYwQcafGq7s/5SaIzsiMABz0xD4ufy0PRO+RoenrbbncLxmE3vL9UFJJ2IV8eskYanf40EqLujNDeYiMOKUTW76f+Smf6k7FVIMC7GowkPLdEmPYNknNj+AC+KkPmokDaYGBtAc2nOKM9/730QEJe5N7j/tfktlica5wLMyJp77KwEv4WojTvIzY8Lm/JjeG//DueJ7fIKkvLk6kuQcAbClqYb3IGHuHepstO+Q6EvXNrAhR6zJ4Ce0pBK0WMZmpXZ6zpr0folNanrxlto6mfDL2OOpbkG7n7N3j8sEhQRkQpG/IsquJO7pUP5y2AWwxJ9T4kYydbWO4ua+YauOXA9+fMh8nqTjemR821eTd+a6NzgG5NwXXNV2M/3wPSqNz0B8EOK+FN1CGuMDR/GOe7FeuQjoB77k8nADWyO6Gv+9p+n1DQtvjdNG81P49qXF2O6KDkPQhTLtnKR/H4lQqLha8MLLuWfjDVJFePzEIUfoiuAG0fZDQyPQ=
+    secure: BMXwK6VLzZwiB+wCDQuFMWxLwZXy4Baj8YtALDTe24vjl1D8/dB2B30PkddZOnDWZq09H9u1CJmhEYhCqPcPQpEgHdlfuxWvsslLogbRER5So7IoxUPGOPtJxD4iX7wN/ZVmD7gBWL1rmobqfh7ZRkUmc9sQj7/+deWTieqq3v6EvgY3pIanlNGen/8Wd9ifEVceM9tTw8lMdN9kbSHf3i2mzmIA6/MW5UZaXlnEM6ULU/2XYesG/OoRquZBrxhAfFm4lCGy3hrUOLUSTg8jyD7fLlpjLUL8Fww7oVSgijAxsieoSenCwO72BijWA/rXCSjJWQijnFziBiILNPsQsTCJkuQbWcXFDj8I6WCUTNdPEuF35CRlgpxOnZm74Kpe8DcsYkqrk3n3lKk1MiKHOv+ImZtApWlWTaZLwvlhOHFVekowiX3/eF95xLmnmwB/mzEi8tPDxOI/8ivYliae+h9xCUX+DIx0yYkMmO+2W7G50vKnVUVoOU5j25g+51kV+MHPeDSI5Na8//fuHq9uCW7A8zBRC4H2uNOalbclhVEs0Bxd4QUAZytBnbGehK0vuFEJVB6HlDLU3xOerzGanqNUN8fLdoscmpGjcLcEt/o/hV01Y17iPRAoXCKViopV8xOL6LeISjv7GMTZsMm0iPYY4pkNCGHNcdZBEfdSdM4=
   file:
-    - boot.zip
-    - rootfs.tar.gz
+  - boot.zip
+  - rootfs.tar.gz
   on:
     tags: true
