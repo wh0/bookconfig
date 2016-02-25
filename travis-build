@@ -1,5 +1,5 @@
 #!/bin/sh -eux
 apt-get download debian-archive-keyring
 dpkg-deb --fsys-tarfile debian-archive-keyring_*.deb | tar -x --strip-components=4 ./usr/share/keyrings/debian-archive-keyring.gpg
-make KEYRING_OPT="--keyring debian-archive-keyring.gpg" debs.tar
+make KEYRING_OPT="--keyring ./debian-archive-keyring.gpg" debs.tar
 make
