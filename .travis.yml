@@ -7,18 +7,7 @@ addons:
       - u-boot-tools
       - debian-archive-keyring
       - debootstrap
-script:
-  - make kernel
-  - cd kernel
-  - git config user.name "blind rebase"
-  - git config user.email "none"
-  - git fetch https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git v4.4.2
-  - git rebase FETCH_HEAD
-  - cd ..
-  - apt-get download debian-archive-keyring
-  - dpkg-deb fsys-tarfile debian-archive-keyring_*.deb | tar -x --strip-components=4 ./usr/share/keyrings/debian-archive-keyring.gpg
-  - make KEYRING_OPT="--keyring debian-archive-keyring.gpg" debs.tar
-  - make
+script: ./travis-build
 deploy:
   provider: releases
   api_key:
