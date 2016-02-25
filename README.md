@@ -39,15 +39,15 @@ When you first boot the root filesystem, this script runs the second stage of de
 
 It arranges for the second stage of debootstrap to run with eatmydata.
 
-It up the system so that there's a user with sudo access, and you can't log in as root.
+It sets up the system so that there's a user with sudo access, and you can't log in as root.
 
 It sets up the root filesystem with some network-related packages.
 This includes the non-free `firmware-ralink` package.
 
-It sets the contrast on boot.
+It sets the LCD contrast on boot.
 Use `/etc/udev/rules.d/99-fb-contrast.rules` to get it the way you like.
 
-It should name the internal USB WiFi adapter wlan0.
+It names the internal USB WiFi adapter wlan0.
 This is different from the usual behavior, which names USB-connected links with their physical address.
 
 There are some `/etc/network` scripts that do the GPIO stuff when you use `ifup wlan0` and `ifdown wlan0`.
