@@ -44,7 +44,7 @@ rootfs.tar.gz: buildrootfs debs.tar init.template ship libeatmydata1.deb
 	fakeroot ./$< $@ $(MIRROR) $(SUITE)
 
 debs.tar:
-	fakeroot debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(SUITE) tmp $(MIRROR)
+	fakeroot debootstrap $(DEBOOTSTRAP_OPTS) --make-tarball $@ $(KEYRING_OPT) $(SUITE) tmp $(MIRROR)
 
 libeatmydata1.deb:
 	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/libeatmydata1_105-1_armel.deb
