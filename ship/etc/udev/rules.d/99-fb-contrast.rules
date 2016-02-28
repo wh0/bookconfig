@@ -1,1 +1,1 @@
-SUBSYSTEM=="platform", DRIVER=="wm8505-fb", ATTR{contrast}="32"
+SUBSYSTEM=="platform", DRIVER=="wm8505-fb", ATTR{contrast}="128"
