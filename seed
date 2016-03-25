@@ -83,3 +83,10 @@ CONFIG_MAGIC_SYSRQ=y
 
 # systemd sheesh
 CONFIG_CGROUPS=y
+
+# our organization started using these
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_MD=y
+CONFIG_BLK_DEV_DM=y
+CONFIG_DM_CRYPT=y
+CONFIG_CRYPTO_XTS=y
