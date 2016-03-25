@@ -1,5 +1,6 @@
 /kernel
 /config
+/config.next
 /zImage_w_dtb
 /script
 /boot.zip

@@ -30,6 +30,12 @@ config: seed | kernel
 	rm -f $@.tmp.old
 	mv $@.tmp $@
 
+menuconfig: config | kernel
+	cp $< config.next.tmp
+	$(MAKE) -C kernel ARCH=arm KCONFIG_CONFIG=../config.next.tmp menuconfig
+	rm -f config.next.tmp.old
+	mv config.next.tmp config.next
+
 kernel:
 	git clone --single-branch -b kernel "$(shell git config remote.origin.url)" $@
 
@@ -49,4 +55,4 @@ debs.tar:
 libeatmydata1.deb:
 	wget -O $@ $(MIRROR)/pool/main/libe/libeatmydata/libeatmydata1_105-2_armel.deb
 
-.PHONY: all
+.PHONY: all menuconfig
