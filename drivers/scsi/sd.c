@@ -761,7 +761,7 @@ static int sd_setup_discard_cmnd(struct scsi_cmnd *cmd)
 		break;
 
 	default:
-		ret = BLKPREP_KILL;
+		ret = BLKPREP_INVALID;
 		goto out;
 	}
 
@@ -839,7 +839,7 @@ static int sd_setup_write_same_cmnd(struct scsi_cmnd *cmd)
 	int ret;
 
 	if (sdkp->device->no_write_same)
-		return BLKPREP_KILL;
+		return BLKPREP_INVALID;
 
 	BUG_ON(bio_offset(bio) || bio_iovec(bio).bv_len != sdp->sector_size);
 
@@ -2893,7 +2893,7 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	    sdkp->opt_xfer_blocks <= SD_DEF_XFER_BLOCKS &&
 	    sdkp->opt_xfer_blocks * sdp->sector_size >= PAGE_CACHE_SIZE)
 		rw_max = q->limits.io_opt =
-			logical_to_sectors(sdp, sdkp->opt_xfer_blocks);
+			sdkp->opt_xfer_blocks * sdp->sector_size;
 	else
 		rw_max = BLK_DEF_MAX_SECTORS;
 
